@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Car Rental Management",
+  "description": "An internal staff management platform to handle fleet inventory, customer data, bookings, payments, charge templates, and security deposits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

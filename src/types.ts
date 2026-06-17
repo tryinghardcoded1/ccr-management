@@ -1,0 +1,134 @@
+export type VehicleStatus = 'Available' | 'Reserved' | 'Rented' | 'Maintenance' | 'Repair';
+export type ReservationStatus = 'Pending' | 'Confirmed' | 'Checked Out' | 'Checked In' | 'Completed' | 'Cancelled';
+export type PaymentStatus = 'Pending' | 'Paid';
+export type PaymentType = 'payment' | 'deposit' | 'refund';
+export type ChargeCategory = 'External Charge' | 'Fine' | 'Claim';
+
+export interface SystemUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'Admin' | 'Staff';
+  status: 'Active' | 'Inactive';
+  password?: string; // For mock login purposes
+}
+
+export interface Customer {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  street: string;
+  street2?: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  driverLicenseNumber: string;
+  driverLicenseExpiration: string;
+  documents?: string;
+  notes?: string;
+
+  // Auto Calculated
+  totalRentals: number;
+  activeReservations: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  totalClaims: number;
+  totalFines: number;
+  lifetimeRevenue: number;
+  lastRentalDate?: string;
+}
+
+export interface Vehicle {
+  id: string;
+  make: string;
+  model: string;
+  year: number;
+  licensePlate: string;
+  status: VehicleStatus;
+  dailyRate: number;
+  category: string;
+  color: string;
+  VIN: string;
+  mileage: number;
+  notes?: string;
+}
+
+export type DepositStatus = 'None' | 'On Hold' | 'Refunded' | 'Completed';
+
+export interface Reservation {
+  id: string;
+  customerId: string;
+  vehicleId: string;
+  status: ReservationStatus;
+  
+  pickupDate: string;
+  pickupTime: string;
+  returnDate: string;
+  returnTime: string;
+
+  baseRental: number;
+  totalAmount: number;
+  balance: number;
+
+  bookingDate: string;
+  notes?: string;
+  vehicleReturned: boolean;
+
+  securityDepositAmount: number;
+  securityDepositStatus: DepositStatus;
+  securityDepositCollectedDate?: string;
+  securityDepositHoldUntil?: string;
+  securityDepositRefundAmount?: number;
+  securityDepositRefundMethod?: string;
+  securityDepositRefundDate?: string;
+  securityDepositRefunded: boolean;
+}
+
+export interface Payment {
+  id: string;
+  reservationId: string;
+  customerId: string;
+  amount: number;
+  date: string;
+  method: string;
+  notes?: string;
+  label?: string;
+  type: PaymentType;
+}
+
+export interface ChargeItem {
+  id: string;
+  reservationId: string;
+  customerId: string;
+  vehicleId?: string; // Optional depending on category
+  category: ChargeCategory | 'Vehicle Switch';
+  description: string;
+  amount: number;
+  paymentStatus: PaymentStatus;
+  date: string;
+  notes?: string;
+  // For Vehicle Switch
+  oldVehicleId?: string;
+  newVehicleId?: string;
+}
+
+export interface ChargeTemplate {
+  id: string;
+  name: string;
+  category: ChargeCategory;
+  rate: number;
+  perDay: boolean;
+}
+
+export interface Maintenance {
+  id: string;
+  vehicleId: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  notes?: string;
+  cost: number;
+}
