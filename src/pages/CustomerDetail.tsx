@@ -15,7 +15,9 @@ export default function CustomerDetail() {
   
   const customer = store.customers.find(c => c.id === id);
   const reservations = useMemo(() => {
-    return store.reservations.filter(r => r.customerId === id);
+    return store.reservations
+      .filter(r => r.customerId === id)
+      .sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [store.reservations, id]);
 
   const [activeTab, setActiveTab] = useState<'contact' | 'bookings' | 'credits' | 'notes' | 'files' | 'payments'>('contact');
@@ -169,11 +171,11 @@ export default function CustomerDetail() {
 
         <div className="flex items-center gap-2">
           <Link 
-            to={`/reservations?newCustomer=${customer.id}`} 
+            to={`/reservations/new?customerId=${customer.id}`} 
             className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-90 text-white rounded-lg text-sm font-semibold shadow-sm transition"
             style={{ backgroundColor: '#1e3a8a' }}
           >
-            New Booking
+            Assign Vehicle
           </Link>
           <button className="p-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition" title="Print Info">
             <Printer className="w-4 h-4" />

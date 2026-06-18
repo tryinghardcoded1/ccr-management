@@ -54,7 +54,7 @@ interface AppState {
   deleteChargeTemplate: (id: string) => void;
   deleteChargeTemplates: (ids: string[]) => void;
 
-  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded' | 'securityDepositAmount'>, selectedChargeTemplateIds: string[]) => void;
+  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded'>, selectedChargeTemplateIds: string[]) => string;
   updateReservationStatus: (id: string, status: ReservationStatus) => void;
   updateReservation: (id: string, data: Partial<Reservation>) => void;
   markVehicleReturned: (id: string) => void;
@@ -257,8 +257,8 @@ export const useStore = create<AppState>()(
           balance: baseRental,
           bookingDate: new Date().toISOString(),
           vehicleReturned: false,
-          securityDepositAmount: 0,
-          securityDepositStatus: 'None',
+          securityDepositAmount: data.securityDepositAmount || 0,
+          securityDepositStatus: (data.securityDepositAmount && data.securityDepositAmount > 0) ? 'Pending' : 'None',
           securityDepositRefunded: false,
         };
 
@@ -266,13 +266,14 @@ export const useStore = create<AppState>()(
           const t = state.chargeTemplates.find((t) => t.id === templateId);
           if (!t) return null;
           const amount = t.perDay ? t.rate * days : t.rate;
+          const descriptionDesc = t.perDay ? `${t.name} $${t.rate.toFixed(2)}/Day ${days} Days` : t.name;
           return {
             id: uuidv4(),
             reservationId: id,
             customerId: data.customerId,
             vehicleId: data.vehicleId,
             category: t.category,
-            description: t.name,
+            description: descriptionDesc,
             amount,
             paymentStatus: 'Pending',
             date: new Date().toISOString(),
@@ -286,6 +287,8 @@ export const useStore = create<AppState>()(
 
         get().recalculateReservationTotals(id);
         get().syncVehicleStatus(newReservation);
+        
+        return id;
       },
 
       updateReservationStatus: (id, status) => {
@@ -474,8 +477,7 @@ export const useStore = create<AppState>()(
 
       syncVehicleStatus: (reservation) => {
         let newStatus = '';
-        if (reservation.status === 'Confirmed') newStatus = 'Reserved';
-        else if (reservation.status === 'Checked Out') newStatus = 'Rented';
+        if (reservation.status === 'Checked Out') newStatus = 'Rented';
         else if (reservation.status === 'Checked In') {
             // Need to check if there are other reservations. If not, Available.
             newStatus = 'Available';

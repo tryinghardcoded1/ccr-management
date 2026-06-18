@@ -56,7 +56,7 @@ export interface Vehicle {
   notes?: string;
 }
 
-export type DepositStatus = 'None' | 'On Hold' | 'Refunded' | 'Completed';
+export type DepositStatus = 'None' | 'Pending' | 'On Hold' | 'Refunded' | 'Completed';
 
 export interface Reservation {
   id: string;

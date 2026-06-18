@@ -1,94 +1,25 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { Plus, Search, Calendar, CheckSquare, Shield, Info, AlertTriangle, Printer, Trash2 } from 'lucide-react';
 
 export default function Reservations() {
   const { reservations, customers, vehicles, chargeTemplates, createReservation, payments, deleteReservations } = useStore();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const newCustomerParam = searchParams.get('newCustomer');
 
-  const [showDrawer, setShowDrawer] = useState(false);
-  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Cancelled' | 'Outstanding'>('All');
+  const [activeFilterTab, setActiveFilterTab] = useState<'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Cancelled' | 'Outstanding'>('Active');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // New Reservation Form State
-  const [formData, setFormData] = useState({
-    customerId: '',
-    vehicleId: '',
-    pickupDate: '',
-    pickupTime: '18:00',
-    returnDate: '',
-    returnTime: '18:00',
-    notes: ''
-  });
-  const [selectedCharges, setSelectedCharges] = useState<string[]>([]);
-  const [error, setError] = useState('');
 
   // If newCustomer parameter was passed, pre-select and open builder
   useEffect(() => {
     if (newCustomerParam) {
-      setFormData(prev => ({ ...prev, customerId: newCustomerParam }));
-      setShowDrawer(true);
-      // Clean up search param so it doesn't reopen unexpectedly
-      setSearchParams({});
+      navigate(`/reservations/new?customerId=${newCustomerParam}`);
     }
-  }, [newCustomerParam]);
-
-  const rentalDays = useMemo(() => {
-    if (formData.pickupDate && formData.returnDate) {
-      let days = differenceInDays(parseISO(formData.returnDate), parseISO(formData.pickupDate));
-      return Math.max(1, days);
-    }
-    return 0;
-  }, [formData.pickupDate, formData.returnDate]);
-
-  const selectedVehicle = vehicles.find(v => v.id === formData.vehicleId);
-  const baseRental = selectedVehicle ? selectedVehicle.dailyRate * rentalDays : 0;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    
-    if (!formData.customerId || !formData.vehicleId || !formData.pickupDate || !formData.returnDate) {
-      setError('Please fill in all strictly required fields.');
-      return;
-    }
-
-    try {
-      createReservation({
-        customerId: formData.customerId,
-        vehicleId: formData.vehicleId,
-        pickupDate: formData.pickupDate,
-        pickupTime: formData.pickupTime,
-        returnDate: formData.returnDate,
-        returnTime: formData.returnTime,
-        status: 'Pending',
-        notes: formData.notes,
-      }, selectedCharges);
-      
-      setShowDrawer(false);
-      // Reset
-      setFormData({
-        customerId: '',
-        vehicleId: '',
-        pickupDate: '',
-        pickupTime: '18:00',
-        returnDate: '',
-        returnTime: '18:00',
-        notes: ''
-      });
-      setSelectedCharges([]);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create reservation');
-    }
-  };
-
-  const toggleCharge = (id: string) => {
-    setSelectedCharges(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
-  };
+  }, [newCustomerParam, navigate]);
 
   // Filter calculations matching Image 3 tabs
   const filteredReservations = useMemo(() => {
@@ -126,21 +57,34 @@ export default function Reservations() {
           return res.status === 'Cancelled';
         case "Outstanding":
           return res.balance > 0;
-        case "All":
+        case "Active":
         default:
-          return true;
+          return res.status !== 'Completed' && res.status !== 'Cancelled';
       }
     });
   }, [reservations, customers, vehicles, searchQuery, activeFilterTab]);
 
-  // Aggregate columns total sums for footer row
+  const sortedReservations = useMemo(() => {
+    const list = [...filteredReservations].sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
+    const unique: typeof list = [];
+    const seenCustomers = new Set();
+    list.forEach(res => {
+      if (!seenCustomers.has(res.customerId)) {
+        seenCustomers.add(res.customerId);
+        unique.push(res);
+      }
+    });
+    return unique;
+  }, [filteredReservations]);
+
+  // Aggregate columns total sums for footer row based on ALL filtered
   const sumTotals = useMemo(() => {
     let price = 0;
     let revenue = 0;
     let paid = 0;
     let refund = 0;
 
-    filteredReservations.forEach(res => {
+    sortedReservations.forEach(res => {
       price += res.totalAmount;
       paid += (res.totalAmount - res.balance);
       revenue += res.totalAmount; // Recognizing revenue total matching image model
@@ -152,10 +96,10 @@ export default function Reservations() {
     });
 
     return { price, revenue, paid, refund };
-  }, [filteredReservations]);
+  }, [sortedReservations]);
 
   const filterTabs = [
-    { id: 'All', label: 'All' },
+    { id: 'Active', label: 'Active Bookings' },
     { id: 'Returns', label: "Today's Returns" },
     { id: 'TomorrowPickups', label: "Tomorrow's Pickups" },
     { id: 'TodayPickups', label: "Today's Pickups" },
@@ -177,11 +121,11 @@ export default function Reservations() {
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === filteredReservations.length && filteredReservations.length > 0) {
+    if (selectedIds.size === sortedReservations.length && sortedReservations.length > 0) {
       setSelectedIds(new Set());
     } else {
       const next = new Set<string>();
-      filteredReservations.forEach(r => next.add(r.id));
+      sortedReservations.forEach(r => next.add(r.id));
       setSelectedIds(next);
     }
   };
@@ -220,7 +164,7 @@ export default function Reservations() {
           
           <button 
             type="button"
-            onClick={() => setShowDrawer(true)} 
+            onClick={() => navigate('/reservations/new')} 
             className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-95 text-white rounded-lg text-sm font-semibold transition shadow-sm"
             style={{ backgroundColor: '#1e3a8a' }}
           >
@@ -285,7 +229,7 @@ export default function Reservations() {
                   <input 
                     type="checkbox" 
                     className="rounded border-gray-300 cursor-pointer" 
-                    checked={selectedIds.size === filteredReservations.length && filteredReservations.length > 0}
+                    checked={selectedIds.size === sortedReservations.length && sortedReservations.length > 0}
                     onChange={toggleAll}
                   />
                 </th>
@@ -302,12 +246,12 @@ export default function Reservations() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150">
-              {filteredReservations.map((res, index) => {
+              {sortedReservations.map((res, index) => {
                 const c = customers.find(cust => cust.id === res.customerId);
                 const v = vehicles.find(veh => veh.id === res.vehicleId);
                 const paidAmt = res.totalAmount - res.balance;
                 
-                const bookingIndex = 62 - index; 
+                const bookingIndex = sortedReservations.length - index; 
 
                 return (
                   <tr key={res.id} className="hover:bg-gray-50 transition-colors">
@@ -326,7 +270,7 @@ export default function Reservations() {
                     </td>
                     <td className="px-4 py-4 font-bold">
                       {c ? (
-                        <Link to={`/customers/${c.id}`} className="text-blue-600 hover:text-blue-850 hover:underline">
+                        <Link to={`/reservations/${res.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
                           {c.firstName} {c.lastName}
                         </Link>
                       ) : (
@@ -347,14 +291,14 @@ export default function Reservations() {
                 );
               })}
 
-              {filteredReservations.length === 0 && (
+              {sortedReservations.length === 0 && (
                 <tr>
                   <td colSpan={13} className="px-6 py-12 text-center text-gray-400 italic">No bookings recorded.</td>
                 </tr>
               )}
 
               {/* Aggregations footer summary row matching Image 3 style */}
-              {filteredReservations.length > 0 && (
+              {sortedReservations.length > 0 && (
                 <tr className="bg-[#f1f5f9] font-black text-gray-950 text-right">
                   <td colSpan={9} className="px-4 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-gray-600">Total Summaries</td>
                   <td className="px-4 py-3 font-extrabold text-gray-900">${sumTotals.price.toFixed(2)}</td>
@@ -368,8 +312,7 @@ export default function Reservations() {
         </div>
       </div>
 
-      {/* Slide drawer for making new reservation */}
-      {showDrawer && (
+      {/* 
         <div className="fixed inset-0 z-50 flex justify-end bg-gray-950/40 backdrop-blur-xs">
           <div className="w-full sm:max-w-lg bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-250">
             <div className="px-6 py-4 border-b border-gray-150 flex justify-between items-center bg-gray-50">
@@ -492,7 +435,7 @@ export default function Reservations() {
             </form>
           </div>
         </div>
-      )}
+      )} */ }
     </div>
   );
 }

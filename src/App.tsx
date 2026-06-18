@@ -22,6 +22,8 @@ import Archive from './pages/Archive';
 import SystemUsers from './pages/SystemUsers';
 import KnowledgeBase from './pages/KnowledgeBase';
 
+import NewReservationPage from './pages/NewReservationPage';
+
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
@@ -51,6 +53,7 @@ export default function App() {
           <Route path="customers/:id" element={<CustomerDetail />} />
           <Route path="vehicles" element={<Vehicles />} />
           <Route path="reservations" element={<Reservations />} />
+          <Route path="reservations/new" element={<NewReservationPage />} />
           <Route path="reservations/:id" element={<ReservationDetail />} />
           <Route path="payments" element={<Payments />} />
           <Route path="charges" element={<ChargeManagement />} />

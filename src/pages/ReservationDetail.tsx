@@ -19,7 +19,8 @@ export default function ReservationDetail() {
   const payments = store.payments.filter(p => p.reservationId === id);
 
   // Active floating dialog modal state
-  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit'>(null);
+  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement'>(null);
+  const [hasSeenAgreement, setHasSeenAgreement] = useState(false);
 
   // Modal Form States
   const [paymentForm, setPaymentForm] = useState({ amount: 0, method: 'Credit Card', label: 'Rental Payment' });
@@ -29,6 +30,7 @@ export default function ReservationDetail() {
   const [switchForm, setSwitchForm] = useState({ newVehicleId: '', upgradeFee: 0, notes: '' });
   const [depositForm, setDepositForm] = useState({ amount: 500, holdUntil: '', method: 'Credit Card' });
   const [refundForm, setRefundForm] = useState({ amount: 0, method: 'Credit Card' });
+  const [returnForm, setReturnForm] = useState({ refundType: 'Full' as 'Full' | 'Partial', deductionAmount: 0, deductionReason: '' });
 
   if (!reservation || !customer || !vehicle) {
     return (
@@ -84,8 +86,48 @@ export default function ReservationDetail() {
     store.updateReservationStatus(reservation.id, newStatus);
   };
 
-  const handleReturnVehicle = () => {
+  const handleProcessReturn = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    
+    // Process deposit deduction & refund if deposit is held
+    if (reservation.securityDepositStatus === 'On Hold') {
+       let refundAmt = reservation.securityDepositAmount;
+       if (returnForm.refundType === 'Partial') {
+         if (returnForm.deductionAmount > 0) {
+            // Create a fine/charge for the deduction
+            store.addChargeItem({
+              reservationId: reservation.id,
+              customerId: reservation.customerId,
+              vehicleId: reservation.vehicleId,
+              description: returnForm.deductionReason || 'Deposit Deduction',
+              amount: returnForm.deductionAmount,
+              category: 'Fine',
+              paymentStatus: 'Paid',
+              date: new Date().toISOString()
+            });
+            // Automatically add payment to offset the charge (since paid via deposit)
+            store.addPayment({
+              reservationId: reservation.id,
+              customerId: reservation.customerId,
+              amount: returnForm.deductionAmount,
+              method: 'Deposit Deduction',
+              type: 'payment',
+              label: 'Auto-paid via Security Deposit deduction',
+              date: new Date().toISOString()
+            });
+            refundAmt = reservation.securityDepositAmount - returnForm.deductionAmount;
+         }
+       }
+       store.refundSecurityDeposit(reservation.id, refundAmt, 'Original Method (Refund)');
+    }
+
+    // Mark vehicle returned
     store.markVehicleReturned(reservation.id);
+
+    // Complete reservation
+    store.updateReservationStatus(reservation.id, 'Completed');
+    
+    setActiveModal(null);
   };
 
   const handleCompleteReservation = () => {
@@ -102,6 +144,16 @@ export default function ReservationDetail() {
       alert("Please enter a valid payment amount.");
       return;
     }
+    
+    // Auto-pay existing pending charges when paying off balance
+    if (paymentForm.amount >= reservation.balance - 0.01) {
+      charges.forEach(c => {
+        if (c.paymentStatus === 'Pending') {
+          store.updateChargeItemStatus(c.id, 'Paid');
+        }
+      });
+    }
+
     store.addPayment({
       reservationId: reservation.id,
       customerId: customer.id,
@@ -111,6 +163,12 @@ export default function ReservationDetail() {
       date: new Date().toISOString(),
       type: 'payment'
     });
+    
+    // Auto confirm if no deposit needed and fully paid
+    if (paymentForm.amount >= reservation.balance - 0.01 && reservation.securityDepositStatus === 'None') {
+       store.updateReservationStatus(reservation.id, 'Checked Out');
+    }
+    
     setActiveModal(null);
     setPaymentForm({ amount: 0, method: 'Credit Card', label: 'Rental Payment' });
   };
@@ -222,6 +280,10 @@ export default function ReservationDetail() {
       return;
     }
     store.processSecurityDeposit(reservation.id, depositForm.amount, depositForm.holdUntil);
+    // After deposit collection, usually status becomes Checked Out
+    if (reservation.status === 'Pending') {
+      store.updateReservationStatus(reservation.id, 'Checked Out');
+    }
     setActiveModal(null);
   };
 
@@ -233,6 +295,24 @@ export default function ReservationDetail() {
 
   // Obtain available vehicles for the Switch Vehicle dropdown
   const availableSwitchVehicles = store.vehicles.filter(v => v.id !== vehicle.id && v.status === 'Available');
+
+  // Auto-display logic for Step 5 & 6 (Payment and Security Deposit)
+  const isPaymentPending = reservation.status === 'Pending' && reservation.balance > 0 && payments.filter(p => p.type === 'payment').length === 0;
+  const isDepositPending = reservation.balance === 0 && reservation.securityDepositStatus === 'Pending';
+  const isAgreementPending = reservation.status === 'Checked Out' && !hasSeenAgreement;
+  
+  React.useEffect(() => {
+    if (isPaymentPending && !activeModal) {
+      setPaymentForm(prev => ({ ...prev, amount: reservation.balance }));
+      setActiveModal('payment');
+    } else if (!isPaymentPending && isDepositPending && !activeModal) {
+      setDepositForm(prev => ({ ...prev, amount: reservation.securityDepositAmount }));
+      setActiveModal('deposit');
+    } else if (!isPaymentPending && !isDepositPending && isAgreementPending && !activeModal) {
+      setActiveModal('agreement');
+      setHasSeenAgreement(true);
+    }
+  }, [isPaymentPending, isDepositPending, isAgreementPending, activeModal, reservation.balance, reservation.securityDepositAmount]);
 
   return (
     <div className="space-y-6">
@@ -260,6 +340,13 @@ export default function ReservationDetail() {
 
         {/* Sync reservation status picker */}
         <div className="flex items-center gap-3 self-start sm:self-center">
+          <Link 
+            to={`/reservations/new?customerId=${customer.id}`} 
+            className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-90 text-white rounded-lg text-sm font-semibold shadow-sm transition mr-4"
+            style={{ backgroundColor: '#1e3a8a' }}
+          >
+            Assign New Vehicle
+          </Link>
           <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Shift Status:</label>
           <select 
             value={reservation.status} 
@@ -267,7 +354,6 @@ export default function ReservationDetail() {
             className="border-gray-200 rounded-lg text-sm font-semibold bg-white p-2 border shadow-sm cursor-pointer hover:border-gray-300"
           >
             <option value="Pending">Pending</option>
-            <option value="Confirmed">Confirmed</option>
             <option value="Checked Out">Checked Out</option>
             <option value="Checked In">Checked In</option>
             <option value="Completed">Completed</option>
@@ -426,237 +512,18 @@ export default function ReservationDetail() {
         <div className="lg:col-span-1 lg:sticky lg:top-6 space-y-6">
           
           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-md flex flex-col space-y-6">
-            <div>
-              <h3 className="font-extrabold text-gray-900 text-lg border-b border-gray-100 pb-3">
-                Financial Summary
-              </h3>
+            
+            {/* Outstanding Balance Heading */}
+            <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+              <span className="text-gray-800 font-bold text-lg">Outstanding Balance</span>
+              <span className={`text-xl font-extrabold ${reservation.balance > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                ${reservation.balance.toFixed(2)}
+              </span>
             </div>
 
-            {/* ORDERED FINANCIAL BREAKDOWN */}
-            <div className="space-y-6 text-sm">
-              
-              {/* 1. Base Rental */}
-              <div className="space-y-1">
-                <div className="flex justify-between items-baseline">
-                  <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Base Rental</span>
-                  <span className="font-extrabold text-gray-950">${reservation.baseRental.toFixed(2)}</span>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {rentalDays} Day{rentalDays > 1 ? 's' : ''} × ${vehicle.dailyRate.toFixed(2)}
-                </div>
-              </div>
-
-              {/* 2. External Charges */}
-              <div className="space-y-2 border-t border-gray-100 pt-3">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-bold text-gray-950 uppercase text-xs tracking-wider">External Charges</span>
-                </div>
-                {externalCharges.length === 0 ? (
-                  <div className="text-xs text-gray-400 italic">No external charges loaded</div>
-                ) : (
-                  <div className="space-y-2">
-                    {externalCharges.map(item => (
-                      <div key={item.id} className="flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-medium text-gray-900">{item.description}</p>
-                          <span className={`inline-block text-[10px] uppercase font-bold py-0.5 px-1 rounded ${item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                            {item.paymentStatus}
-                          </span>
-                        </div>
-                        <div className="text-right flex items-center gap-3">
-                          {item.paymentStatus === 'Pending' && (
-                            <button 
-                              onClick={() => store.updateChargeItemStatus(item.id, 'Paid')} 
-                              className="text-[10px] text-indigo-600 font-extrabold hover:underline uppercase"
-                            >
-                              Pay
-                            </button>
-                          )}
-                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 3. Claims */}
-              <div className="space-y-2 border-t border-gray-100 pt-3">
-                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Claims</span>
-                {claims.length === 0 ? (
-                  <div className="text-xs text-gray-400 italic">No active claim files</div>
-                ) : (
-                  <div className="space-y-2">
-                    {claims.map(item => (
-                      <div key={item.id} className="flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-medium text-gray-900">{item.description}</p>
-                          <span className={`inline-block text-[10px] uppercase font-bold py-0.5 px-1 rounded ${item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                            {item.paymentStatus}
-                          </span>
-                        </div>
-                        <div className="text-right flex items-center gap-3">
-                          {item.paymentStatus === 'Pending' && (
-                            <button 
-                              onClick={() => store.updateChargeItemStatus(item.id, 'Paid')} 
-                              className="text-[10px] text-indigo-600 font-extrabold hover:underline uppercase"
-                            >
-                              Pay
-                            </button>
-                          )}
-                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 4. Fines */}
-              <div className="space-y-2 border-t border-gray-100 pt-3">
-                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Fines</span>
-                {fines.length === 0 ? (
-                  <div className="text-xs text-gray-400 italic">No staff fine records</div>
-                ) : (
-                  <div className="space-y-2">
-                    {fines.map(item => (
-                      <div key={item.id} className="flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-medium text-gray-900">{item.description}</p>
-                          <span className={`inline-block text-[10px] uppercase font-bold py-0.5 px-1 rounded ${item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                            {item.paymentStatus}
-                          </span>
-                        </div>
-                        <div className="text-right flex items-center gap-3">
-                          {item.paymentStatus === 'Pending' && (
-                            <button 
-                              onClick={() => store.updateChargeItemStatus(item.id, 'Paid')} 
-                              className="text-[10px] text-indigo-600 font-extrabold hover:underline uppercase"
-                            >
-                              Pay
-                            </button>
-                          )}
-                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 5. Vehicle Switch Fees */}
-              <div className="space-y-2 border-t border-gray-100 pt-3">
-                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Vehicle Switch Fees</span>
-                {switchFees.length === 0 ? (
-                  <div className="text-xs text-gray-400 italic">No transition swaps logged</div>
-                ) : (
-                  <div className="space-y-2">
-                    {switchFees.map(item => (
-                      <div key={item.id} className="flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-medium text-gray-900">{item.description}</p>
-                          <span className={`inline-block text-[10px] uppercase font-bold py-0.5 px-1 rounded ${item.paymentStatus === 'Paid' ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
-                            {item.paymentStatus}
-                          </span>
-                        </div>
-                        <div className="text-right flex items-center gap-3">
-                          {item.paymentStatus === 'Pending' && (
-                            <button 
-                              onClick={() => store.updateChargeItemStatus(item.id, 'Paid')} 
-                              className="text-[10px] text-indigo-600 font-extrabold hover:underline uppercase"
-                            >
-                              Pay
-                            </button>
-                          )}
-                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 6. Security Deposit (Displayed separately, never part of calculations) */}
-              <div className="space-y-2 border-t border-indigo-100 pt-4 bg-indigo-50/40 p-3 rounded-lg border">
-                <div className="flex justify-between items-center">
-                  <span className="font-extrabold text-indigo-950 uppercase text-xs tracking-wider flex items-center gap-1">
-                    <ShieldAlert className="w-3.5 h-3.5" /> Security Deposit
-                  </span>
-                  <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${reservation.securityDepositStatus === 'Refunded' ? 'bg-green-100 text-green-800' : reservation.securityDepositStatus === 'On Hold' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'}`}>
-                    {reservation.securityDepositStatus}
-                  </span>
-                </div>
-                
-                {reservation.securityDepositStatus === 'None' ? (
-                  <p className="text-xs text-indigo-900/60 italic">No security deposit holds active</p>
-                ) : (
-                  <div className="space-y-1.5 text-xs text-indigo-900">
-                    <div className="flex justify-between">
-                      <span className="opacity-70">Amount Held:</span>
-                      <span className="font-bold">${reservation.securityDepositAmount.toFixed(2)}</span>
-                    </div>
-                    {reservation.securityDepositCollectedDate && (
-                      <div className="flex justify-between">
-                        <span className="opacity-70">Collected:</span>
-                        <span>{format(new Date(reservation.securityDepositCollectedDate), 'MMM d, yyyy')}</span>
-                      </div>
-                    )}
-                    {reservation.securityDepositHoldUntil && (
-                      <div className="flex justify-between">
-                        <span className="opacity-70">Duration:</span>
-                        <span>Hold until {format(new Date(reservation.securityDepositHoldUntil), 'MMM d, yyyy')}</span>
-                      </div>
-                    )}
-                    {reservation.securityDepositStatus === 'Refunded' && (
-                      <div className="border-t border-indigo-100 pt-1.5 mt-1 text-[11px] space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-green-800 font-semibold">Refunded Amount:</span>
-                          <span className="font-bold text-green-800">${reservation.securityDepositRefundAmount?.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-[10px] opacity-75">
-                          <span>Via Method:</span>
-                          <span>{reservation.securityDepositRefundMethod}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-            </div>
-
-            {/* TOTALS SECTION */}
-            <div className="border-t-2 border-dashed border-gray-200 pt-4 space-y-3">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-650 font-medium">Subtotal Charges</span>
-                <span className="text-gray-900 font-bold">${reservation.totalAmount.toFixed(2)}</span>
-              </div>
-
-              {/* Payments Received Breakdown */}
-              <div className="space-y-1 bg-gray-50/60 p-2.5 rounded-lg border border-gray-100">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Receipt Log</span>
-                {payments.filter(p => p.type === 'payment').map(p => (
-                  <div key={p.id} className="flex justify-between text-xs text-green-700">
-                    <span>Payment ({format(new Date(p.date), 'MM/dd')})</span>
-                    <span className="font-semibold">-${p.amount.toFixed(2)}</span>
-                  </div>
-                ))}
-                {payments.filter(p => p.type === 'payment').length === 0 && (
-                  <span className="text-xs text-gray-400 italic block">No standard payments recorded</span>
-                )}
-              </div>
-
-              <div className="flex justify-between items-center pt-2">
-                <span className="text-gray-800 font-bold text-base">Outstanding Balance</span>
-                <span className={`text-lg font-extrabold ${reservation.balance > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                  ${reservation.balance.toFixed(2)}
-                </span>
-              </div>
-            </div>
-
-            {/* QUICK ACTIONS BELOW THE SUMMARY */}
-            <div className="border-t border-gray-100 pt-4 space-y-2">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">Staff Operations</span>
+            {/* QUICK ACTIONS ON TOP */}
+            <div className="space-y-4">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Staff Operations</span>
               
               <div className="grid grid-cols-2 gap-2">
                 {reservation.balance > 0 && (
@@ -713,12 +580,18 @@ export default function ReservationDetail() {
                 >
                   <ShieldAlert className="w-3.5 h-3.5 text-orange-500" /> Security Deposit
                 </button>
+                <button 
+                  onClick={() => setActiveModal('agreement')}
+                  className="w-full border border-gray-200 text-gray-700 bg-white rounded-lg py-2 px-3 text-xs font-bold hover:bg-gray-50 transition flex items-center justify-center gap-1 shadow-sm leading-none"
+                >
+                  <FileText className="w-3.5 h-3.5 text-gray-500" /> View Agreement
+                </button>
               </div>
 
               <div className="pt-2 space-y-2">
                 {!reservation.vehicleReturned ? (
                   <button 
-                    onClick={handleReturnVehicle}
+                    onClick={() => setActiveModal('returnVehicle')}
                     className="w-full bg-green-600 hover:bg-green-700 text-white rounded-lg py-2 px-4 text-xs font-bold shadow transition flex items-center justify-center gap-2"
                   >
                     <Check className="w-4 h-4" /> Return Vehicle Checklist
@@ -743,12 +616,178 @@ export default function ReservationDetail() {
 
               {/* Completion Rules Warning panel */}
               {completionBlockers.length > 0 && reservation.status !== 'Completed' && (
-                <div className="bg-orange-50 border border-orange-100 p-3 rounded-lg text-xs space-y-1 text-orange-850 mt-1">
+                <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl text-lg space-y-2 text-orange-850 mt-2">
                   <span className="font-extrabold uppercase tracking-wide text-orange-950 block">Missing Requirements:</span>
-                  <ul className="list-disc pl-4 space-y-0.5 opacity-90">
+                  <ul className="list-disc pl-5 space-y-1 text-sm opacity-90">
                     {completionBlockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
                 </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="font-extrabold text-gray-900 text-lg border-b border-gray-100 pb-3 mt-4">
+                Financial Summary
+              </h3>
+            </div>
+
+            {/* ORDERED FINANCIAL BREAKDOWN */}
+            <div className="space-y-6 text-sm">
+              
+              {/* 1. Base Rental */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Base Rental</span>
+                  <span className="font-extrabold text-gray-950">${reservation.baseRental.toFixed(2)}</span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {rentalDays} Day{rentalDays > 1 ? 's' : ''} × ${vehicle.dailyRate.toFixed(2)}
+                </div>
+              </div>
+
+              {/* 2. External Charges */}
+              {externalCharges.length > 0 && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="font-bold text-gray-950 uppercase text-xs tracking-wider">External Charges</span>
+                </div>
+                  <div className="space-y-2">
+                    {externalCharges.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-medium text-gray-900">{item.description}</p>
+                        </div>
+                        <div className="text-right flex items-center gap-3">
+                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              </div>
+              )}
+
+              {/* 3. Claims */}
+              {claims.length > 0 && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Claims</span>
+                  <div className="space-y-2">
+                    {claims.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-medium text-gray-900">{item.description}</p>
+                        </div>
+                        <div className="text-right flex items-center gap-3">
+                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              </div>
+              )}
+
+              {/* 4. Fines */}
+              {fines.length > 0 && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Fines</span>
+                  <div className="space-y-2">
+                    {fines.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-medium text-gray-900">{item.description}</p>
+                        </div>
+                        <div className="text-right flex items-center gap-3">
+                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              </div>
+              )}
+
+              {/* 5. Vehicle Switch Fees */}
+              {switchFees.length > 0 && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                <span className="font-bold text-gray-950 uppercase text-xs tracking-wider block">Vehicle Switch Fees</span>
+                  <div className="space-y-2">
+                    {switchFees.map(item => (
+                      <div key={item.id} className="flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-medium text-gray-900">{item.description}</p>
+                        </div>
+                        <div className="text-right flex items-center gap-3">
+                          <span className="font-medium text-gray-900">${item.amount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              </div>
+              )}
+
+              {/* 6. Security Deposit */}
+              {reservation.securityDepositStatus !== 'None' && (
+              <div className="space-y-2 border-t border-indigo-100 pt-4 bg-indigo-50/40 p-3 rounded-lg border">
+                <div className="flex justify-between items-center">
+                  <span className="font-extrabold text-indigo-950 uppercase text-xs tracking-wider flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5" /> Security Deposit
+                  </span>
+                  <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${reservation.securityDepositStatus === 'Refunded' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                    {reservation.securityDepositStatus}
+                  </span>
+                </div>
+                
+                <div className="space-y-1.5 text-xs text-indigo-900">
+                  <div className="flex justify-between">
+                    <span className="opacity-70">Amount Held:</span>
+                    <span className="font-bold">${reservation.securityDepositAmount.toFixed(2)}</span>
+                  </div>
+                  {reservation.securityDepositCollectedDate && (
+                    <div className="flex justify-between">
+                      <span className="opacity-70">Collected:</span>
+                      <span>{format(new Date(reservation.securityDepositCollectedDate), 'MMM d, yyyy')}</span>
+                    </div>
+                  )}
+                  {reservation.securityDepositHoldUntil && (
+                    <div className="flex justify-between">
+                      <span className="opacity-70">Duration:</span>
+                      <span>Hold until {format(new Date(reservation.securityDepositHoldUntil), 'MMM d, yyyy')}</span>
+                    </div>
+                  )}
+                  {reservation.securityDepositStatus === 'Refunded' && (
+                    <div className="border-t border-indigo-100 pt-1.5 mt-1 text-[11px] space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-green-800 font-semibold">Refunded Amount:</span>
+                        <span className="font-bold text-green-800">${reservation.securityDepositRefundAmount?.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] opacity-75">
+                        <span>Via Method:</span>
+                        <span>{reservation.securityDepositRefundMethod}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              )}
+
+            </div>
+
+            {/* TOTALS SECTION */}
+            <div className="border-t-2 border-dashed border-gray-200 pt-4 space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-650 font-medium">Subtotal Charges</span>
+                <span className="text-gray-900 font-bold">${reservation.totalAmount.toFixed(2)}</span>
+              </div>
+
+              {/* Payments Received Breakdown */}
+              {payments.filter(p => p.type === 'payment').length > 0 && (
+              <div className="space-y-1 bg-gray-50/60 p-2.5 rounded-lg border border-gray-100">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Receipt Log</span>
+                {payments.filter(p => p.type === 'payment').map(p => (
+                  <div key={p.id} className="flex justify-between text-xs text-green-700">
+                    <span>Payment ({format(new Date(p.date), 'MM/dd')})</span>
+                    <span className="font-semibold">-${p.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
               )}
             </div>
 
@@ -769,12 +808,37 @@ export default function ReservationDetail() {
               <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 font-bold">×</button>
             </div>
             <form onSubmit={handleAddPayment} className="p-6 space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prepayment Balance</label>
-                <div className="bg-gray-100 p-2 text-xs font-bold rounded">
-                  Max: ${reservation.balance.toFixed(2)}
+              <div className="bg-white border rounded-lg p-3 space-y-2 mb-4">
+                <span className="text-xs font-bold uppercase text-gray-400 block mb-2 border-b pb-1">Payment Breakdown</span>
+                
+                {/* Outstanding Base Rental Calculation */}
+                {(() => {
+                  const baseRentPaid = payments.filter(p => p.type === 'payment').reduce((sum, p) => sum + p.amount, 0) - charges.filter(c => c.paymentStatus === 'Paid').reduce((sum, c) => sum + c.amount, 0);
+                  const baseRentRemaining = Math.max(0, reservation.baseRental - baseRentPaid);
+                  if (baseRentRemaining > 0) {
+                    return (
+                      <div className="flex justify-between items-center text-gray-700">
+                        <span>Rental Fee (${vehicle.dailyRate.toFixed(2)}/Day x {rentalDays} Days)</span>
+                        <span className="font-medium">${baseRentRemaining.toFixed(2)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {charges.filter(c => c.paymentStatus === 'Pending').map(c => (
+                  <div key={c.id} className="flex justify-between items-center text-gray-700">
+                    <span>{c.description}</span>
+                    <span className="font-medium">${c.amount.toFixed(2)}</span>
+                  </div>
+                ))}
+                
+                <div className="flex justify-between items-center text-gray-900 border-t pt-2 mt-2 font-bold">
+                  <span>Total Amount</span>
+                  <span>${reservation.balance.toFixed(2)}</span>
                 </div>
               </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Payment Method</label>
                 <select 
@@ -787,30 +851,19 @@ export default function ReservationDetail() {
                   <option value="Wire Transfer">Wire Transfer</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Amount ($)</label>
+              <div className="hidden">
                 <input 
                   type="number" 
                   step="0.01"
                   required 
                   max={reservation.balance}
-                  className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none text-base font-semibold"
                   value={paymentForm.amount || ''}
                   onChange={e => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) })}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Reference Tag (Label)</label>
-                <input 
-                  type="text" 
-                  className="w-full border rounded-lg p-2 outline-none text-xs text-gray-650"
-                  value={paymentForm.label}
-                  onChange={e => setPaymentForm({ ...paymentForm, label: e.target.value })}
-                />
-              </div>
               <div className="flex gap-2 pt-2">
                 <button type="submit" className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm">
-                  Apply Payment
+                  Apply Payment of ${reservation.balance.toFixed(2)}
                 </button>
                 <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-2 border border-gray-205 text-gray-700 rounded-lg hover:bg-gray-50 text-xs">
                   Cancel
@@ -1060,8 +1113,8 @@ export default function ReservationDetail() {
             </div>
             
             <div className="p-6">
-              {/* CURRENT DEPOSIT IS NONE -> PROCESS HOLD */}
-              {reservation.securityDepositStatus === 'None' && (
+              {/* CURRENT DEPOSIT IS NONE OR PENDING -> PROCESS HOLD */}
+              {(reservation.securityDepositStatus === 'None' || reservation.securityDepositStatus === 'Pending') && (
                 <form onSubmit={handleProcessDeposit} className="space-y-4 text-sm">
                   <p className="text-xs text-gray-505">
                     No active hold found. Setup a preauthorized security deposit.
@@ -1158,6 +1211,175 @@ export default function ReservationDetail() {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Return Vehicle Checklist Modal */}
+      {activeModal === 'returnVehicle' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-5 bg-slate-50 border-b flex justify-between items-center">
+              <h4 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-indigo-600" /> Return & Finalize
+              </h4>
+              <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">×</button>
+            </div>
+            <form onSubmit={handleProcessReturn} className="p-6 space-y-6">
+              <div className="bg-green-50 p-4 rounded-xl border border-green-100 flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-green-900 font-medium">Verify the vehicle has been physically returned and keys collected.</p>
+              </div>
+
+              {reservation.securityDepositStatus === 'On Hold' && (
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <h5 className="font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-orange-500" /> Security Deposit Refund
+                  </h5>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={returnForm.refundType === 'Full'} onChange={() => setReturnForm({...returnForm, refundType: 'Full'})} className="text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-sm font-bold text-slate-700">Full Refund (${reservation.securityDepositAmount.toFixed(2)})</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={returnForm.refundType === 'Partial'} onChange={() => setReturnForm({...returnForm, refundType: 'Partial'})} className="text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-sm font-bold text-slate-700">Partial/Deduct</span>
+                    </label>
+                  </div>
+
+                  {returnForm.refundType === 'Partial' && (
+                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-orange-900 mb-1.5">Amount to Deduct ($)</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          max={reservation.securityDepositAmount}
+                          required
+                          value={returnForm.deductionAmount || ''}
+                          onChange={e => setReturnForm({...returnForm, deductionAmount: parseFloat(e.target.value)})}
+                          className="w-full border-orange-200 rounded-lg p-2 font-medium focus:ring-2 focus:ring-orange-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-orange-900 mb-1.5">Reason / Fine Label</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={returnForm.deductionReason}
+                          onChange={e => setReturnForm({...returnForm, deductionReason: e.target.value})}
+                          placeholder="e.g. Damage to bumper, refueling fee"
+                          className="w-full border-orange-200 rounded-lg p-2 font-medium focus:ring-2 focus:ring-orange-500 outline-none"
+                        />
+                      </div>
+                      <div className="text-xs font-bold text-orange-850 pt-2 border-t border-orange-200/50">
+                        Refund Amount: ${(reservation.securityDepositAmount - returnForm.deductionAmount || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-2 flex gap-3">
+                <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold shadow-lg shadow-indigo-200 transition">
+                  Confirm & Complete
+                </button>
+                <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-3 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 font-bold transition">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Rental Agreement View Modal */}
+      {activeModal === 'agreement' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-gray-100 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 bg-gray-50 border-b flex justify-between items-center">
+              <h4 className="font-bold text-gray-900 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-600"/> Digital Rental Agreement</h4>
+              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 font-bold">×</button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto font-sans text-sm text-gray-800 space-y-6">
+              <div className="text-center pb-4 border-b">
+                <h1 className="text-2xl font-extrabold uppercase tracking-wider mb-1">Standard Rental Agreement</h1>
+                <p className="text-gray-500 font-mono text-xs">Agreement #{reservation.id.substring(0, 8).toUpperCase()}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-8 text-xs">
+                <div>
+                  <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1">Lessee (Customer)</h5>
+                  <p className="font-bold">{customer.firstName} {customer.lastName}</p>
+                  <p>{customer.street}</p>
+                  <p>{customer.city}, {customer.state} {customer.zip}</p>
+                  <p className="mt-2 font-mono">Lic: {customer.driverLicenseNumber}</p>
+                </div>
+                <div>
+                  <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1">Vehicle Unit</h5>
+                  <p className="font-bold">{vehicle.year} {vehicle.make} {vehicle.model}</p>
+                  <p className="font-mono">Plate: <span className="bg-gray-100 px-1 py-0.5 rounded">{vehicle.licensePlate}</span></p>
+                  <p className="font-mono mt-1">VIN: {vehicle.VIN}</p>
+                </div>
+              </div>
+
+              <div>
+                 <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1 text-xs">Rental Term</h5>
+                 <p><strong>Pickup:</strong> {reservation.pickupDate} at {reservation.pickupTime}</p>
+                 <p><strong>Return:</strong> {reservation.returnDate} at {reservation.returnTime}</p>
+                 <p className="mt-1"><strong>Duration:</strong> {rentalDays} rental days</p>
+              </div>
+
+              <div>
+                <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1 text-xs">Financial Disclosure</h5>
+                <div className="bg-gray-50 rounded-lg p-4 font-mono text-xs">
+                  <div className="flex justify-between mb-1">
+                    <span>Base Rental Rate ({vehicle.dailyRate.toFixed(2)} x {rentalDays})</span>
+                    <span>${reservation.baseRental.toFixed(2)}</span>
+                  </div>
+                  {charges.map(c => (
+                     <div key={c.id} className="flex justify-between mb-1">
+                       <span>{c.description}</span>
+                       <span>${c.amount.toFixed(2)}</span>
+                     </div>
+                  ))}
+                  <div className="flex justify-between font-bold mt-3 pt-2 border-t border-gray-300">
+                    <span>Total Authorized Contract Amount</span>
+                    <span>${reservation.totalAmount.toFixed(2)}</span>
+                  </div>
+                  {reservation.securityDepositStatus === 'On Hold' && (
+                     <div className="flex justify-between mt-1 text-gray-500">
+                       <span>Security Deposit Hold</span>
+                       <span>${reservation.securityDepositAmount.toFixed(2)}</span>
+                     </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-[10px] text-gray-500 leading-tight space-y-2 pt-4">
+                <p>1. By signing below, the Lessee acknowledges receipt of the vehicle in good working condition.</p>
+                <p>2. The Lessee assumes full responsibility for any damage, liability, or fines incurred during the rental period.</p>
+                <p>3. A penalty fee will apply for late returns exceeding the agreed upon return time by more than 1 hour.</p>
+                <p>4. The Security Deposit will be fully or partially utilized to cover damages, unrecorded tolls, or refueling costs upon return inspection.</p>
+              </div>
+
+              <div className="pt-10 flex gap-12">
+                <div className="flex-1 border-t border-gray-400 pt-2 text-center">
+                  <p className="font-bold text-xs">Lessee Signature</p>
+                  <p className="text-[10px] text-gray-400">{customer.firstName} {customer.lastName}</p>
+                </div>
+                <div className="flex-1 border-t border-gray-400 pt-2 text-center">
+                  <p className="font-bold text-xs">Authorized Agent</p>
+                  <p className="text-[10px] text-gray-400">System generated on {format(new Date(), 'MM/dd/yyyy')}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-xl">
+               <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 text-gray-700 bg-white rounded-lg text-sm font-bold shadow-sm hover:bg-gray-50">Print Copy</button>
+               <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700">Close Agreement</button>
             </div>
           </div>
         </div>

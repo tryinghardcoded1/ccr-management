@@ -91,7 +91,7 @@ export default function Archive() {
                   <tr key={v.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 font-bold text-slate-700">{v.make} {v.model} ({v.year})</td>
                     <td className="px-6 py-4 text-slate-500 font-mono">{v.licensePlate}</td>
-                    <td className="px-6 py-4 text-slate-500">{v.class}</td>
+                    <td className="px-6 py-4 text-slate-500">{v.category}</td>
                   </tr>
                 ))}
                 {archivedVehicles.length === 0 && (
