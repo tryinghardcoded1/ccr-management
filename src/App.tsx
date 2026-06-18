@@ -23,6 +23,7 @@ import SystemUsers from './pages/SystemUsers';
 import KnowledgeBase from './pages/KnowledgeBase';
 
 import NewReservationPage from './pages/NewReservationPage';
+import CustomerVoicePortal from './pages/CustomerVoicePortal';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="archive" element={<Archive />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
         </Route>
+        <Route path="/portal" element={<CustomerVoicePortal />} />
       </Routes>
     </BrowserRouter>
   );
