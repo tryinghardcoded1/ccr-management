@@ -24,7 +24,7 @@ export default function Layout(): ReactElement {
     { to: '/customers', label: 'Customers', icon: Users },
     { to: '/vehicles', label: 'Fleet Management', icon: Car },
     { to: '/reservations', label: 'Reservations', icon: Calendar },
-    { to: '/payments', label: 'Financial Records', icon: CreditCard },
+    { to: '/payments', label: 'Payment Record', icon: CreditCard },
     { to: '/reports', label: 'System Reports', icon: FileText },
     { to: '/charges', label: 'Rate Management', icon: Settings },
     { to: '/archive', label: 'Archive', icon: Archive },

@@ -1,1 +1,42 @@
 @import "tailwindcss";
+
+@media print {
+  /* Hide standard page contents */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Show only the modal/element with ID #printable-agreement and its children */
+  #printable-agreement,
+  #printable-agreement * {
+    visibility: visible;
+  }
+  
+  #printable-agreement {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 2.5cm !important;
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  /* Force background colors and colors to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Explicitly hide header/footer buttons or items with .no-print */
+  .no-print {
+    display: none !important;
+  }
+}
+

@@ -5,7 +5,7 @@ import { ReservationStatus, ChargeCategory, PaymentStatus, Vehicle as StoreVehic
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { 
   ArrowLeft, Car, User, Calendar, DollarSign, Clock, CreditCard, 
-  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText
+  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText, Printer
 } from 'lucide-react';
 
 export default function ReservationDetail() {
@@ -1296,91 +1296,168 @@ export default function ReservationDetail() {
 
       {/* 8. Rental Agreement View Modal */}
       {activeModal === 'agreement' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-gray-100 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 bg-gray-50 border-b flex justify-between items-center">
-              <h4 className="font-bold text-gray-900 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-600"/> Digital Rental Agreement</h4>
-              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 font-bold">×</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-2 sm:p-4 no-print-backdrop">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-gray-150 overflow-hidden flex flex-col max-h-[92vh]" id="printable-agreement">
+            
+            {/* Header - Hidden during actual device printing if .no-print classes are applied elsewhere */}
+            <div className="px-6 py-4 bg-slate-50 border-b border-gray-150 flex justify-between items-center no-print">
+              <h4 className="font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-indigo-600" /> Print & Digital Rental Agreement
+              </h4>
+              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">×</button>
             </div>
             
-            <div className="p-8 overflow-y-auto font-sans text-sm text-gray-800 space-y-6">
-              <div className="text-center pb-4 border-b">
-                <h1 className="text-2xl font-extrabold uppercase tracking-wider mb-1">Standard Rental Agreement</h1>
-                <p className="text-gray-500 font-mono text-xs">Agreement #{reservation.id.substring(0, 8).toUpperCase()}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-8 text-xs">
-                <div>
-                  <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1">Lessee (Customer)</h5>
-                  <p className="font-bold">{customer.firstName} {customer.lastName}</p>
-                  <p>{customer.street}</p>
-                  <p>{customer.city}, {customer.state} {customer.zip}</p>
-                  <p className="mt-2 font-mono">Lic: {customer.driverLicenseNumber}</p>
-                </div>
-                <div>
-                  <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1">Vehicle Unit</h5>
-                  <p className="font-bold">{vehicle.year} {vehicle.make} {vehicle.model}</p>
-                  <p className="font-mono">Plate: <span className="bg-gray-100 px-1 py-0.5 rounded">{vehicle.licensePlate}</span></p>
-                  <p className="font-mono mt-1">VIN: {vehicle.VIN}</p>
-                </div>
-              </div>
-
-              <div>
-                 <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1 text-xs">Rental Term</h5>
-                 <p><strong>Pickup:</strong> {reservation.pickupDate} at {reservation.pickupTime}</p>
-                 <p><strong>Return:</strong> {reservation.returnDate} at {reservation.returnTime}</p>
-                 <p className="mt-1"><strong>Duration:</strong> {rentalDays} rental days</p>
-              </div>
-
-              <div>
-                <h5 className="font-bold uppercase tracking-wider text-gray-400 mb-2 border-b pb-1 text-xs">Financial Disclosure</h5>
-                <div className="bg-gray-50 rounded-lg p-4 font-mono text-xs">
-                  <div className="flex justify-between mb-1">
-                    <span>Base Rental Rate ({vehicle.dailyRate.toFixed(2)} x {rentalDays})</span>
-                    <span>${reservation.baseRental.toFixed(2)}</span>
+            <div className="p-8 overflow-y-auto font-sans text-sm text-slate-800 space-y-6">
+              
+              {/* Document Header with Logo and Metadata */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-6 border-b border-gray-200 gap-4">
+                <div className="flex items-center gap-4">
+                  <img 
+                    src="https://i.imgur.com/V66hvUg.png" 
+                    alt="Company Logo" 
+                    className="h-16 w-auto object-contain" 
+                    referrerPolicy="no-referrer" 
+                  />
+                  <div>
+                    <h2 className="text-lg font-black tracking-tight text-slate-950 uppercase">Elite Wheels</h2>
+                    <p className="text-[10px] uppercase font-mono text-slate-500 tracking-wider">Premium Fleet Operations</p>
                   </div>
-                  {charges.map(c => (
-                     <div key={c.id} className="flex justify-between mb-1">
-                       <span>{c.description}</span>
-                       <span>${c.amount.toFixed(2)}</span>
-                     </div>
-                  ))}
-                  <div className="flex justify-between font-bold mt-3 pt-2 border-t border-gray-300">
-                    <span>Total Authorized Contract Amount</span>
-                    <span>${reservation.totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="text-left sm:text-right font-mono">
+                  <h1 className="text-xl font-bold uppercase text-indigo-700 tracking-tight leading-tight">Rental Contract</h1>
+                  <p className="text-xs text-slate-500 mt-1">Agreement #: <span className="font-bold font-sans text-slate-900">REF-{reservation.id.substring(0, 8).toUpperCase()}</span></p>
+                  <p className="text-[10px] text-slate-400">Date Issued: {format(new Date(), 'MM/dd/yyyy')}</p>
+                </div>
+              </div>
+
+              {/* Dynamic Customer & Vehicle Disclosures Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <h5 className="font-bold uppercase tracking-wider text-slate-500 pb-1.5 border-b border-slate-200 mb-2">Lessee (Customer Profile)</h5>
+                  <p className="font-extrabold text-slate-900 text-sm mb-1">{customer.firstName} {customer.lastName}</p>
+                  <p className="text-slate-600">{customer.street}</p>
+                  {customer.street2 && <p className="text-slate-600">{customer.street2}</p>}
+                  <p className="text-slate-600 mb-2">{customer.city}, {customer.state} {customer.zip}</p>
+                  <div className="font-mono text-slate-500 space-y-0.5 pt-1 border-t border-slate-200/50">
+                    <p>Lic: <span className="font-bold text-slate-700">{customer.driverLicenseNumber}</span></p>
+                    <p>Phone: <span className="text-slate-700">{customer.phone}</span></p>
+                    <p>Email: <span className="text-slate-700">{customer.email}</span></p>
                   </div>
-                  {reservation.securityDepositStatus === 'On Hold' && (
-                     <div className="flex justify-between mt-1 text-gray-500">
-                       <span>Security Deposit Hold</span>
-                       <span>${reservation.securityDepositAmount.toFixed(2)}</span>
-                     </div>
-                  )}
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <h5 className="font-bold uppercase tracking-wider text-slate-500 pb-1.5 border-b border-slate-100 mb-2">Vehicle Assignment</h5>
+                  <p className="font-extrabold text-slate-900 text-sm mb-1">{vehicle.year} {vehicle.make} {vehicle.model}</p>
+                  <p className="text-slate-600 font-mono">License Plate: <span className="bg-slate-200 text-slate-950 font-bold px-1.5 py-0.5 rounded text-[10px]">{vehicle.licensePlate}</span></p>
+                  <p className="text-slate-600 font-mono mt-1 text-[11px]">VIN Number: {vehicle.VIN}</p>
+                  
+                  <h5 className="font-bold uppercase tracking-wider text-slate-500 pb-1 border-b border-slate-100 mt-4 mb-2 text-[10px]">Rental Term Summary</h5>
+                  <div className="text-slate-600 space-y-0.5">
+                    <p><strong>Pickup:</strong> {reservation.pickupDate} at {reservation.pickupTime}</p>
+                    <p><strong>Return:</strong> {reservation.returnDate} at {reservation.returnTime}</p>
+                    <p className="text-slate-900 mt-1 font-bold">Total Duration: {rentalDays} rental day{rentalDays > 1 ? 's' : ''}</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="text-[10px] text-gray-500 leading-tight space-y-2 pt-4">
-                <p>1. By signing below, the Lessee acknowledges receipt of the vehicle in good working condition.</p>
-                <p>2. The Lessee assumes full responsibility for any damage, liability, or fines incurred during the rental period.</p>
-                <p>3. A penalty fee will apply for late returns exceeding the agreed upon return time by more than 1 hour.</p>
-                <p>4. The Security Deposit will be fully or partially utilized to cover damages, unrecorded tolls, or refueling costs upon return inspection.</p>
+              {/* Financial Breakdown Invoice Table */}
+              <div>
+                <h5 className="font-bold uppercase tracking-wider text-slate-500 mb-2 pb-1 text-xs border-b border-slate-200">Financial Disclosure Breakdown</h5>
+                <div className="overflow-hidden border border-slate-200 rounded-lg">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                        <th className="px-4 py-2.5">Charge Item Description</th>
+                        <th className="px-4 py-2.5 text-right">Calculation Factor</th>
+                        <th className="px-4 py-2.5 text-right w-32">Total Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-150 font-mono text-slate-700">
+                      <tr>
+                        <td className="px-4 py-2 font-sans font-medium text-slate-900">Base Vehicle Rental Rate</td>
+                        <td className="px-4 py-2 text-right">${vehicle.dailyRate.toFixed(2)} / Day × {rentalDays} Days</td>
+                        <td className="px-4 py-2 text-right font-bold text-slate-900">${reservation.baseRental.toFixed(2)}</td>
+                      </tr>
+                      {charges.map(c => (
+                        <tr key={c.id}>
+                          <td className="px-4 py-2 font-sans font-medium text-slate-900">
+                            {c.description} <span className="text-[10px] text-slate-400">({c.category})</span>
+                          </td>
+                          <td className="px-4 py-2 text-right text-slate-500">-</td>
+                          <td className="px-4 py-2 text-right font-bold text-slate-900">${c.amount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 font-bold border-t border-slate-250">
+                        <td colSpan={2} className="px-4 py-2.5 font-sans uppercase tracking-wide text-right text-slate-600 font-bold text-[10px]">Total Contract Value</td>
+                        <td className="px-4 py-2.5 text-right text-sm text-slate-900 font-extrabold">${reservation.totalAmount.toFixed(2)}</td>
+                      </tr>
+                      <tr className="text-emerald-700 bg-emerald-50/50">
+                        <td colSpan={2} className="px-4 py-2 font-sans text-right font-bold text-[10px] uppercase">Paid Upfront Payments</td>
+                        <td className="px-4 py-2 text-right font-extrabold">-${(reservation.totalAmount - reservation.balance).toFixed(2)}</td>
+                      </tr>
+                      {reservation.securityDepositAmount > 0 && (
+                        <tr className="text-slate-500 bg-slate-50/20">
+                          <td colSpan={2} className="px-4 py-2 font-sans text-right text-[10px] uppercase">
+                            Security Deposit Hold ({reservation.securityDepositStatus})
+                          </td>
+                          <td className="px-4 py-2 text-right font-semibold">${reservation.securityDepositAmount.toFixed(2)}</td>
+                        </tr>
+                      )}
+                      <tr className="bg-indigo-50 font-black border-t-2 border-indigo-200">
+                        <td colSpan={2} className="px-4 py-3 font-sans uppercase tracking-wide text-right text-indigo-900 font-bold text-[10px]">Unpaid Balance Due</td>
+                        <td className="px-4 py-3 text-right text-base text-indigo-950 font-black">${reservation.balance.toFixed(2)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <div className="pt-10 flex gap-12">
-                <div className="flex-1 border-t border-gray-400 pt-2 text-center">
-                  <p className="font-bold text-xs">Lessee Signature</p>
-                  <p className="text-[10px] text-gray-400">{customer.firstName} {customer.lastName}</p>
+              {/* Standard Policy Terms & Disclosures */}
+              <div className="text-[10px] text-slate-500 leading-normal space-y-2 pt-4 border-t border-slate-100">
+                <p><strong>1. Driver Certification:</strong> By signing below, the Lessee certifies that they hold a valid driver's license as detailed above, and are fully qualified and permitted to operate the assigned vehicle unit under current local, state, and federal laws.</p>
+                <p><strong>2. Insurance & Liability:</strong> The Lessee assumes full financial responsibility for any physical vehicle damage, regulatory fines, speeding tickets, toll violations, or third-party liabilities incurred during the scope of this active rental period.</p>
+                <p><strong>3. Security Deposit:</strong> A deposit authorization hold is recorded on the corporate ledger. It will be fully released or liquidated as necessary to offset unpaid tolls, high-wear damages, fuel replacement fees, or cleanup costs upon active physical return inspection.</p>
+                <p><strong>4. Return Rules:</strong> Vehicles must be returned to the authorized depot on or before the specified date and time. Overdue returns exceeding a 1-hour grace margin will represent active default and escalate to additional rental day rates.</p>
+              </div>
+
+              {/* Signature Blocks with Cursive/Handwriting style digital indicator */}
+              <div className="pt-8 flex flex-col sm:flex-row gap-12">
+                <div className="flex-1 border-t border-slate-200 pt-2 text-center">
+                  <div className="h-8 flex items-center justify-center">
+                    <span className="font-serif italic text-base text-indigo-750 font-semibold tracking-wide">
+                      {customer.firstName} {customer.lastName}
+                    </span>
+                  </div>
+                  <p className="font-bold text-xs text-slate-700">Lessee Signature</p>
+                  <p className="text-[10px] text-slate-400">Digitally Verified & Completed</p>
                 </div>
-                <div className="flex-1 border-t border-gray-400 pt-2 text-center">
-                  <p className="font-bold text-xs">Authorized Agent</p>
-                  <p className="text-[10px] text-gray-400">System generated on {format(new Date(), 'MM/dd/yyyy')}</p>
+                <div className="flex-1 border-t border-slate-200 pt-2 text-center">
+                  <div className="h-8 flex items-center justify-center text-xs text-slate-600 font-semibold">
+                    <span>Authorized Agent #SW-{reservation.id.substring(0, 4).toUpperCase()}</span>
+                  </div>
+                  <p className="font-bold text-xs text-slate-700">Authorized Officer Signature</p>
+                  <p className="text-[10px] text-slate-400">System logged on {format(new Date(), 'MM/dd/yyyy')}</p>
                 </div>
               </div>
+
             </div>
 
-            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3 rounded-b-xl">
-               <button onClick={() => window.print()} className="px-4 py-2 border border-gray-200 text-gray-700 bg-white rounded-lg text-sm font-bold shadow-sm hover:bg-gray-50">Print Copy</button>
-               <button onClick={() => setActiveModal(null)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700">Close Agreement</button>
+            {/* Footer Buttons - Hidden in browser Print PDF */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-gray-150 flex justify-end gap-3 rounded-b-xl no-print">
+               <button 
+                 onClick={() => window.print()} 
+                 className="px-4 py-2 border border-slate-300 text-slate-700 bg-white rounded-lg text-sm font-bold shadow-sm hover:bg-slate-50 cursor-pointer flex items-center gap-1.5"
+               >
+                 <Printer className="w-4 h-4" /> Print Contract / PDF
+               </button>
+               <button 
+                 onClick={() => setActiveModal(null)} 
+                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 cursor-pointer"
+               >
+                 Close Agreement
+               </button>
             </div>
+
           </div>
         </div>
       )}

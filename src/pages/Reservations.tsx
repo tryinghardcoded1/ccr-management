@@ -65,37 +65,22 @@ export default function Reservations() {
   }, [reservations, customers, vehicles, searchQuery, activeFilterTab]);
 
   const sortedReservations = useMemo(() => {
-    const list = [...filteredReservations].sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
-    const unique: typeof list = [];
-    const seenCustomers = new Set();
-    list.forEach(res => {
-      if (!seenCustomers.has(res.customerId)) {
-        seenCustomers.add(res.customerId);
-        unique.push(res);
-      }
-    });
-    return unique;
+    return [...filteredReservations].sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [filteredReservations]);
 
   // Aggregate columns total sums for footer row based on ALL filtered
   const sumTotals = useMemo(() => {
     let price = 0;
-    let revenue = 0;
     let paid = 0;
-    let refund = 0;
+    let balance = 0;
 
     sortedReservations.forEach(res => {
       price += res.totalAmount;
       paid += (res.totalAmount - res.balance);
-      revenue += res.totalAmount; // Recognizing revenue total matching image model
-
-      // Security deposits refunds count as refunds
-      if (res.securityDepositStatus === 'Refunded' && res.securityDepositRefundAmount) {
-        refund += res.securityDepositRefundAmount;
-      }
+      balance += res.balance;
     });
 
-    return { price, revenue, paid, refund };
+    return { price, paid, balance };
   }, [sortedReservations]);
 
   const filterTabs = [
@@ -233,16 +218,16 @@ export default function Reservations() {
                     onChange={toggleAll}
                   />
                 </th>
-                <th className="px-4 py-3 text-center">#</th>
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3">Pickup</th>
-                <th className="px-4 py-3 hidden lg:table-cell">Return Date</th>
-                <th className="px-4 py-3 hidden xl:table-cell">Pickup Location</th>
-                <th className="px-4 py-3 hidden xl:table-cell">Vehicle Class</th>
-                <th className="px-4 py-3 hidden md:table-cell">Vehicle</th>
-                <th className="px-4 py-3 hidden lg:table-cell">Price</th>
+                <th className="px-4 py-3 text-center">Number</th>
+                <th className="px-4 py-3">Reservation Status</th>
+                <th className="px-4 py-3">Customer Name</th>
+                <th className="px-4 py-3">Pick Up</th>
+                <th className="px-4 py-3">Return</th>
+                <th className="px-4 py-3">Vehicle Type</th>
+                <th className="px-4 py-3">Vehicle Price</th>
                 <th className="px-4 py-3 text-right font-bold">Paid</th>
-                <th className="px-4 py-3 text-right font-bold hidden sm:table-cell">Balance</th>
+                <th className="px-4 py-3 text-center">Deposit Status</th>
+                <th className="px-4 py-3 text-right font-bold">Balance</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150">
@@ -251,11 +236,11 @@ export default function Reservations() {
                 const v = vehicles.find(veh => veh.id === res.vehicleId);
                 const paidAmt = res.totalAmount - res.balance;
                 
-                const bookingIndex = sortedReservations.length - index; 
+                const displayNum = `RES-${res.id.substring(0, 5).toUpperCase()}`;
 
                 return (
                   <tr key={res.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 w-4">
                       <input 
                         type="checkbox" 
                         className="rounded border-gray-300 cursor-pointer" 
@@ -263,11 +248,25 @@ export default function Reservations() {
                         onChange={() => toggleSelection(res.id)}
                       />
                     </td>
+                    {/* 1. THE NUMBER */}
                     <td className="px-4 py-4 font-bold text-blue-600 text-center">
                       <Link to={`/reservations/${res.id}`} className="hover:underline">
-                        {bookingIndex > 0 ? bookingIndex : res.id.substring(0, 4).toUpperCase()}
+                        {displayNum}
                       </Link>
                     </td>
+                    {/* 2. RESERVATION STATUS */}
+                    <td className="px-4 py-4 font-medium">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border
+                        ${res.status === 'Completed' ? 'bg-green-50 text-green-800 border-green-200' : 
+                          res.status === 'Checked Out' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                          res.status === 'Checked In' ? 'bg-teal-50 text-teal-800 border-teal-200' :
+                          res.status === 'Confirmed' ? 'bg-indigo-50 text-indigo-800 border-indigo-200' :
+                          res.status === 'Cancelled' ? 'bg-red-50 text-red-850 border-red-250' : 'bg-gray-100 text-gray-800 border-gray-200'}`}
+                      >
+                        {res.status}
+                      </span>
+                    </td>
+                    {/* 3. CUSTOMER NAME */}
                     <td className="px-4 py-4 font-bold">
                       {c ? (
                         <Link to={`/reservations/${res.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
@@ -277,34 +276,74 @@ export default function Reservations() {
                         <span className="text-gray-450">Deleted</span>
                       )}
                     </td>
-                    <td className="px-4 py-4 text-gray-700">{res.pickupDate}</td>
-                    <td className="px-4 py-4 text-gray-700 hidden lg:table-cell">{res.returnDate}</td>
-                    <td className="px-4 py-4 text-gray-500 hidden xl:table-cell">Office</td>
-                    <td className="px-4 py-4 text-gray-550 font-medium hidden xl:table-cell">{v ? v.category : 'Premium'}</td>
-                    <td className="px-4 py-4 font-medium text-gray-800 hidden md:table-cell">
-                      {v ? `${v.make.toUpperCase()} ${v.model.toUpperCase()}` : <span className="text-orange-400 font-semibold text-[10px]">Not Assigned</span>}
+                    {/* 4. PICK UP */}
+                    <td className="px-4 py-4 text-gray-700">
+                      <div className="font-semibold">{res.pickupDate}</div>
+                      <div className="text-[10px] text-gray-450">{res.pickupTime}</div>
                     </td>
-                    <td className="px-4 py-4 text-gray-900 hidden lg:table-cell">${res.totalAmount.toFixed(2)}</td>
-                    <td className="px-4 py-4 text-right font-bold text-green-700">${paidAmt.toFixed(2)}</td>
-                    <td className="px-4 py-4 text-right font-bold text-red-600 hidden sm:table-cell">${res.balance.toFixed(2)}</td>
+                    {/* 5. RETURN */}
+                    <td className="px-4 py-4 text-gray-700">
+                      <div className="font-semibold">{res.returnDate}</div>
+                      <div className="text-[10px] text-gray-450">{res.returnTime}</div>
+                    </td>
+                    {/* 6. VEHICLE TYPE */}
+                    <td className="px-4 py-4 text-gray-600 font-medium">
+                      {v ? (
+                        <div>
+                          <div className="font-semibold text-gray-800">{v.category.toUpperCase()}</div>
+                          <div className="text-[10.5px] text-gray-450">{v.make} {v.model} ({v.year})</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">Class/Unassigned</span>
+                      )}
+                    </td>
+                    {/* 7. VEHICLE PRICE */}
+                    <td className="px-4 py-4 text-gray-900 font-semibold">
+                      {v ? (
+                        <div>
+                          <div>${v.dailyRate.toFixed(2)}</div>
+                          <div className="text-[10px] text-gray-450 font-normal">/ day</div>
+                        </div>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    {/* 8. PAID */}
+                    <td className="px-4 py-4 text-right font-black text-emerald-600 text-sm">
+                      ${paidAmt.toFixed(2)}
+                    </td>
+                    {/* 9. DEPOSIT STATUS */}
+                    <td className="px-4 py-4 text-center">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border
+                        ${res.securityDepositStatus === 'On Hold' ? 'bg-orange-50 text-orange-850 border-orange-250 font-bold' :
+                          res.securityDepositStatus === 'Refunded' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                          res.securityDepositStatus === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                          res.securityDepositStatus === 'Pending' ? 'bg-yellow-50 text-yellow-850 border-yellow-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
+                      >
+                        {res.securityDepositStatus}
+                      </span>
+                    </td>
+                    {/* 10. BALANCE */}
+                    <td className={`px-4 py-4 text-right font-black text-sm ${res.balance > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                      ${res.balance.toFixed(2)}
+                    </td>
                   </tr>
                 );
               })}
 
               {sortedReservations.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-6 py-12 text-center text-gray-400 italic">No bookings recorded.</td>
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-400 italic">No bookings recorded.</td>
                 </tr>
               )}
 
-              {/* Aggregations footer summary row matching Image 3 style */}
+              {/* Aggregations footer summary row matching columns layout */}
               {sortedReservations.length > 0 && (
-                <tr className="bg-[#f1f5f9] font-black text-gray-950 text-right">
-                  <td colSpan={9} className="px-4 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-gray-600">Total Summaries</td>
-                  <td className="px-4 py-3 font-extrabold text-gray-900">${sumTotals.price.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-extrabold text-gray-900">${sumTotals.revenue.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-extrabold text-green-850">${sumTotals.paid.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-extrabold text-gray-600">${sumTotals.refund.toFixed(2)}</td>
+                <tr className="bg-[#f1f5f9] font-black text-gray-950 text-right text-xs">
+                  <td colSpan={8} className="px-4 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-gray-650">Total Summaries</td>
+                  <td className="px-4 py-3 font-extrabold text-green-700">${sumTotals.paid.toFixed(2)}</td>
+                  <td className="px-4 py-3"></td>
+                  <td className={`px-4 py-3 font-extrabold ${sumTotals.balance > 0 ? 'text-red-700' : 'text-gray-900'}`}>${sumTotals.balance.toFixed(2)}</td>
                 </tr>
               )}
             </tbody>

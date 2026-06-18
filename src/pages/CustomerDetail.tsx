@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store';
 import { Customer, Reservation } from '../types';
 import { 
@@ -20,7 +20,17 @@ export default function CustomerDetail() {
       .sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [store.reservations, id]);
 
-  const [activeTab, setActiveTab] = useState<'contact' | 'bookings' | 'credits' | 'notes' | 'files' | 'payments'>('contact');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'payments' ? 'customer-payments' : 'contact';
+  const [activeTab, setActiveTab] = useState<'contact' | 'bookings' | 'credits' | 'notes' | 'files' | 'payments' | 'customer-payments'>(initialTab);
+
+  React.useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'payments') {
+      setActiveTab('customer-payments');
+    }
+  }, [searchParams]);
+
   const [successMsg, setSuccessMsg] = useState('');
 
   // Form State for edit
@@ -140,6 +150,7 @@ export default function CustomerDetail() {
   const tabs = [
     { id: 'contact', label: 'Contact' },
     { id: 'bookings', label: 'Bookings' },
+    { id: 'customer-payments', label: 'Payments' },
     { id: 'credits', label: 'Credits' },
     { id: 'notes', label: 'Notes' },
     { id: 'files', label: 'Files' },
@@ -547,6 +558,97 @@ export default function CustomerDetail() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'customer-payments' && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Rental Payments</p>
+              <p className="text-2xl font-extrabold text-green-600 mt-1">
+                ${store.payments.filter(p => p.customerId === id && p.type === 'payment').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Security Deposits Held</p>
+              <p className="text-2xl font-extrabold text-blue-600 mt-1">
+                ${store.payments.filter(p => p.customerId === id && p.type === 'deposit').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Refunds Processed</p>
+              <p className="text-2xl font-extrabold text-orange-600 mt-1">
+                ${store.payments.filter(p => p.customerId === id && p.type === 'refund').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-150 rounded-xl shadow-sm overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-gray-900 text-base">Payment & Refund Ledger</h3>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-[#f8fafc] text-slate-500 font-bold text-xs uppercase tracking-wider border-b border-gray-150">
+                  <tr>
+                    <th className="px-6 py-3.5">Date & Time</th>
+                    <th className="px-6 py-3.5">Type</th>
+                    <th className="px-6 py-3.5">Reservation Connection</th>
+                    <th className="px-6 py-3.5">Method</th>
+                    <th className="px-6 py-3.5">Reference / Notes</th>
+                    <th className="px-6 py-3.5 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-150 font-medium">
+                  {store.payments
+                    .filter(p => p.customerId === id)
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 text-gray-500 text-xs font-mono">
+                          {format(new Date(p.date), 'MMM d, yyyy HH:mm')}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border
+                            ${p.type === 'payment' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 
+                              (p.type === 'refund' ? 'bg-orange-50 text-orange-850 border-orange-200' : 'bg-blue-50 text-blue-800 border-blue-200')}`}
+                          >
+                            {p.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <Link 
+                            to={`/reservations/${p.reservationId}`} 
+                            className="text-indigo-600 hover:text-indigo-855 hover:underline font-mono text-xs font-bold"
+                          >
+                            #{p.reservationId.substring(0, 8).toUpperCase()}
+                          </Link>
+                        </td>
+                        <td className="px-6 py-4 text-slate-700 text-xs font-semibold">{p.method}</td>
+                        <td className="px-6 py-4 text-xs text-slate-500 italic max-w-xs truncate" title={p.notes || p.label}>
+                          {p.label || p.notes || '-'}
+                        </td>
+                        <td className={`px-6 py-4 text-right font-bold font-mono text-sm
+                          ${p.type === 'refund' ? 'text-orange-600' : 'text-slate-900'}`}
+                        >
+                          {p.type === 'refund' ? '-' : ''}${p.amount.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  {store.payments.filter(p => p.customerId === id).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">No payments recorded for this customer.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

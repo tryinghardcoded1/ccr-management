@@ -1,17 +1,52 @@
 import { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { format } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
+import { CreditCard, Wallet, Users, Clock, ArrowRightLeft } from 'lucide-react';
 
 export default function Payments() {
   const { payments, customers, reservations } = useStore();
+  const navigate = useNavigate();
   const [filterType, setFilterType] = useState('all');
 
-  const filteredPayments = useMemo(() => {
-    let sorted = [...payments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const groupedCustomerPayments = useMemo(() => {
+    // 1. Filter matching payments by types (payment, refund, deposit)
+    let matchedPayments = [...payments];
     if (filterType !== 'all') {
-      sorted = sorted.filter(p => p.type === filterType);
+      matchedPayments = matchedPayments.filter(p => p.type === filterType);
     }
-    return sorted;
+
+    // 2. Group by unique customerId to avoid duplicated names 
+    const map: Record<string, {
+      customerId: string;
+      latestPayment: typeof payments[0];
+      allMatchingPayments: typeof payments;
+      totalAmount: number;
+    }> = {};
+
+    matchedPayments.forEach(p => {
+      if (!map[p.customerId]) {
+         map[p.customerId] = {
+           customerId: p.customerId,
+           latestPayment: p,
+           allMatchingPayments: [p],
+           totalAmount: p.amount
+         };
+      } else {
+         const group = map[p.customerId];
+         group.allMatchingPayments.push(p);
+         group.totalAmount += p.amount;
+         // Select the latest transaction based on exact timestamp
+         if (new Date(p.date).getTime() > new Date(group.latestPayment.date).getTime()) {
+           group.latestPayment = p;
+         }
+      }
+    });
+
+    // 3. Convert to array and sort by the latest payment date descending
+    return Object.values(map).sort(
+      (a, b) => new Date(b.latestPayment.date).getTime() - new Date(a.latestPayment.date).getTime()
+    );
   }, [payments, filterType]);
 
   const collected = payments.filter(p => p.type === 'payment').reduce((sum, p) => sum + p.amount, 0);
@@ -21,78 +56,127 @@ export default function Payments() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight text-gray-900">Payments & Transactions</h2>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Collected Revenue</p>
-          <p className="text-3xl font-bold text-green-600 mt-2">${collected.toFixed(2)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Total Outstanding</p>
-          <p className="text-3xl font-bold text-orange-600 mt-2">${outstanding.toFixed(2)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Deposits Held</p>
-          <p className="text-3xl font-bold text-blue-600 mt-2">${depositHeld.toFixed(2)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Refunded</p>
-          <p className="text-3xl font-bold text-gray-900 mt-2">${refunded.toFixed(2)}</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-black tracking-tight text-gray-900">Payment Record</h2>
+          <p className="text-xs text-gray-450 uppercase tracking-widest mt-0.5">Deduplicated Customer Transaction Audits</p>
         </div>
       </div>
 
-      <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-gray-100 bg-gray-50">
-          <select className="border rounded-md px-3 py-1.5 text-sm bg-white" value={filterType} onChange={e => setFilterType(e.target.value)}>
-            <option value="all">All Transactions</option>
-            <option value="payment">Payments</option>
-            <option value="deposit">Deposits</option>
-            <option value="refund">Refunds</option>
-          </select>
+      {/* Aggregate Overview Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-xl border border-gray-150 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Collected Revenue</p>
+          <p className="text-3xl font-black text-emerald-600 mt-2">${collected.toFixed(2)}</p>
         </div>
-        <table className="w-full text-left text-sm whitespace-nowrap">
-          <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
-            <tr>
-              <th className="px-6 py-3">Date</th>
-              <th className="px-6 py-3">Type / Label</th>
-              <th className="px-6 py-3">Customer</th>
-              <th className="px-6 py-3">Reservation ID</th>
-              <th className="px-6 py-3">Method</th>
-              <th className="px-6 py-3 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filteredPayments.map(p => {
-              const c = customers.find(c => c.id === p.customerId);
-              return (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-gray-500">{format(new Date(p.date), 'MMM d, yyyy HH:mm')}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-xs font-medium uppercase
-                      ${p.type === 'payment' ? 'bg-green-100 text-green-700' : 
-                        (p.type === 'refund' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700')}`
-                    }>
-                      {p.type}
-                    </span>
-                    {p.label && <span className="ml-2 text-xs text-gray-500">{p.label}</span>}
-                  </td>
-                  <td className="px-6 py-4">{c?.firstName} {c?.lastName}</td>
-                  <td className="px-6 py-4 text-indigo-600 font-mono text-xs">{p.reservationId.substring(0,8).toUpperCase()}</td>
-                  <td className="px-6 py-4">{p.method}</td>
-                  <td className="px-6 py-4 text-right font-medium">
-                    ${p.amount.toFixed(2)}
-                  </td>
-                </tr>
-              );
-            })}
-            {filteredPayments.length === 0 && (
+        <div className="bg-white p-6 rounded-xl border border-gray-150 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Total Outstanding</p>
+          <p className="text-3xl font-black text-orange-600 mt-2">${outstanding.toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-gray-150 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Deposits Held</p>
+          <p className="text-3xl font-black text-indigo-600 mt-2">${depositHeld.toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-gray-150 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Refunded</p>
+          <p className="text-3xl font-black text-slate-800 mt-2">${refunded.toFixed(2)}</p>
+        </div>
+      </div>
+
+      {/* Filter and Ledger Table */}
+      <div className="bg-white shadow-sm border border-gray-150 rounded-xl overflow-hidden flex flex-col">
+        <div className="p-4 border-b border-gray-150 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-600" />
+            <h3 className="font-bold text-gray-900 text-sm">Customer Transaction Ledger</h3>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Filter By Type:</label>
+            <select 
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs bg-white font-semibold text-gray-700 cursor-pointer hover:border-gray-400 transition" 
+              value={filterType} 
+              onChange={e => setFilterType(e.target.value)}
+            >
+              <option value="all">All Transactions</option>
+              <option value="payment">Regular Payment</option>
+              <option value="deposit">Security Deposit</option>
+              <option value="refund">Refund / Credit</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-[#f8fafc] text-slate-500 font-bold text-xs uppercase tracking-wider border-b border-gray-150">
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No transactions found.</td>
+                <th className="px-6 py-4">Customer Name</th>
+                <th className="px-6 py-4">Latest Reservation</th>
+                <th className="px-6 py-4">Payment Date & Time</th>
+                <th className="px-6 py-4">Payment Type</th>
+                <th className="px-6 py-4">Payment Method</th>
+                <th className="px-6 py-4 text-right">Amount</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-150 font-medium text-slate-700">
+              {groupedCustomerPayments.map(group => {
+                const c = customers.find(cust => cust.id === group.customerId);
+                const p = group.latestPayment;
+                return (
+                  <tr 
+                    key={group.customerId} 
+                    onClick={() => navigate(`/customers/${group.customerId}?tab=payments`)}
+                    className="hover:bg-indigo-50/40 cursor-pointer transition-all duration-150 group"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center font-bold text-indigo-700 shadow-inner group-hover:bg-indigo-100 transition-colors">
+                          {c?.firstName?.[0].toUpperCase() || 'C'}
+                        </div>
+                        <div>
+                          <div className="font-extrabold text-slate-900 group-hover:text-indigo-700 transition-colors">
+                            {c ? `${c.firstName} ${c.lastName}` : 'Unknown Customer'}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium">Click to view full customer profile payments</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 font-mono text-xs">
+                      <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                        #{p.reservationId.substring(0, 8).toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-gray-500 text-xs font-mono">
+                      {format(new Date(p.date), 'MMM d, yyyy HH:mm')}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border
+                        ${p.type === 'payment' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 
+                          (p.type === 'refund' ? 'bg-orange-50 text-orange-800 border-orange-200' : 'bg-blue-50 text-blue-800 border-blue-200')}`}
+                      >
+                        {p.type}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-650 text-xs font-semibold">{p.method}</td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="font-mono text-sm text-slate-900 font-bold">${p.amount.toFixed(2)}</div>
+                      {group.allMatchingPayments.length > 1 && (
+                        <div className="text-[10px] text-indigo-650 font-mono font-bold">
+                          (Total of {group.allMatchingPayments.length}: ${group.totalAmount.toFixed(2)})
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {groupedCustomerPayments.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">No customers found matching current filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

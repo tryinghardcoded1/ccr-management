@@ -24,12 +24,29 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   const [pickupTime, setPickupTime] = useState('09:00');
   const [returnDate, setReturnDate] = useState(format(new Date(Date.now() + 86400000), 'yyyy-MM-dd'));
   const [returnTime, setReturnTime] = useState('09:00');
-  const [pickupLocation, setPickupLocation] = useState('Office');
-  const [returnLocation, setReturnLocation] = useState('Office');
+  const [pickupLocation, setPickupLocation] = useState('3041 Vare Ave B, Philadelphia, PA 19145');
+  const [returnLocation, setReturnLocation] = useState('3041 Vare Ave B, Philadelphia, PA 19145');
   
   const [vehicleId, setVehicleId] = useState('');
   const [selectedChargeTemplateIds, setSelectedChargeTemplateIds] = useState<string[]>([]);
   const [customerId, setCustomerId] = useState(initialCustomerId);
+
+  // Quick Add Customer Form State
+  const [showQuickAddForm, setShowQuickAddForm] = useState(false);
+  const [qaFirstName, setQaFirstName] = useState('');
+  const [qaLastName, setQaLastName] = useState('');
+  const [qaEmail, setQaEmail] = useState('');
+  const [qaPhone, setQaPhone] = useState('');
+  const [qaStreet, setQaStreet] = useState('');
+  const [qaStreet2, setQaStreet2] = useState('');
+  const [qaCity, setQaCity] = useState('');
+  const [qaState, setQaState] = useState('');
+  const [qaZip, setQaZip] = useState('');
+  const [qaCountry, setQaCountry] = useState('United States');
+  const [qaDriverLicenseNumber, setQaDriverLicenseNumber] = useState('');
+  const [qaDriverLicenseExpiration, setQaDriverLicenseExpiration] = useState('');
+  const [qaNotes, setQaNotes] = useState('');
+  const [qaError, setQaError] = useState('');
 
   const [error, setError] = useState('');
 
@@ -51,6 +68,55 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
     if (!selectedCustomer) return [];
     return store.reservations.filter(r => r.customerId === selectedCustomer.id).sort((a,b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [selectedCustomer, store.reservations]);
+
+  const handleQuickAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qaFirstName || !qaLastName || !qaEmail) {
+      setQaError('First Name, Last Name, and Email are strictly required fields.');
+      return;
+    }
+    try {
+      const newCustId = store.addCustomer({
+        firstName: qaFirstName,
+        lastName: qaLastName,
+        email: qaEmail,
+        phone: qaPhone,
+        street: qaStreet,
+        street2: qaStreet2,
+        city: qaCity,
+        state: qaState,
+        zip: qaZip,
+        country: qaCountry,
+        driverLicenseNumber: qaDriverLicenseNumber,
+        driverLicenseExpiration: qaDriverLicenseExpiration,
+        notes: qaNotes,
+      });
+
+      // Clear the input statuses
+      setQaFirstName('');
+      setQaLastName('');
+      setQaEmail('');
+      setQaPhone('');
+      setQaStreet('');
+      setQaStreet2('');
+      setQaCity('');
+      setQaState('');
+      setQaZip('');
+      setQaCountry('United States');
+      setQaDriverLicenseNumber('');
+      setQaDriverLicenseExpiration('');
+      setQaNotes('');
+      setQaError('');
+
+      // Auto assign & jump straight to Confirm tab
+      setCustomerId(newCustId);
+      setShowQuickAddForm(false);
+      setError('');
+      setStep(4);
+    } catch (err: any) {
+      setQaError(err.message || 'Error occurred saving customer profile.');
+    }
+  };
 
   const handleNext = () => {
     if (step === 1) {
@@ -148,9 +214,9 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                       <div>
                         <label className="block text-xs font-semibold text-zinc-600 mb-1">Pickup Location</label>
                         <select className="w-full border border-zinc-300 rounded p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={pickupLocation} onChange={e => setPickupLocation(e.target.value)}>
-                          <option value="Office">HQ Office</option>
-                          <option value="Airport">Lax Airport Terminal</option>
-                          <option value="Hotel Delivery">Customer Address</option>
+                          <option value="3041 Vare Ave B, Philadelphia, PA 19145">3041 Vare Ave B, Philadelphia, PA 19145 (Default HQ)</option>
+                          <option value="Lax Airport Terminal">Lax Airport Terminal</option>
+                          <option value="Customer Address">Customer Address</option>
                         </select>
                       </div>
                     </div>
@@ -166,8 +232,8 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                       <div>
                         <label className="block text-xs font-semibold text-zinc-600 mb-1">Return Location</label>
                         <select className="w-full border border-zinc-300 rounded p-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={returnLocation} onChange={e => setReturnLocation(e.target.value)}>
-                          <option value="Office">HQ Office</option>
-                          <option value="Airport">Lax Airport Terminal</option>
+                          <option value="3041 Vare Ave B, Philadelphia, PA 19145">3041 Vare Ave B, Philadelphia, PA 19145 (Default HQ)</option>
+                          <option value="Lax Airport Terminal">Lax Airport Terminal</option>
                         </select>
                       </div>
                     </div>
@@ -251,95 +317,263 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                 <section>
                   <div className="flex justify-between items-end mb-3 border-b pb-2">
                     <h3 className="font-semibold text-zinc-800 text-base">Assign Customer</h3>
-                    <button className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline">
-                      <UserPlus className="w-3.5 h-3.5" /> Quick Add
-                    </button>
+                    {!showQuickAddForm && (
+                      <button 
+                        type="button"
+                        onClick={() => { setShowQuickAddForm(true); setQaError(''); }}
+                        className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> Quick Add
+                      </button>
+                    )}
                   </div>
                   
-                  <div className="mb-6">
-                    <select 
-                      className="w-full border border-zinc-300 bg-zinc-50 rounded p-3 text-sm font-semibold text-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                      value={customerId}
-                      onChange={e => setCustomerId(e.target.value)}
-                    >
-                      <option value="">-- Select Customer File --</option>
-                      {store.customers.map(c => (
-                        <option key={c.id} value={c.id}>{c.firstName} {c.lastName} | Phone: {c.phone} | {c.email}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {selectedCustomer && (
-                    <div className="border border-zinc-200 rounded p-5 bg-white text-sm">
-                      <h4 className="font-semibold text-zinc-800 text-base mb-4 flex gap-2 items-center"><Building className="w-4 h-4 text-zinc-400" /> Customer Profile Verification</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-6 text-sm">
-                        <div className="border-b border-zinc-100 pb-2">
-                          <span className="block text-xs font-semibold text-zinc-500">FullName</span>
-                          <span className="font-bold text-zinc-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</span>
-                        </div>
-                        <div className="border-b border-zinc-100 pb-2">
-                          <span className="block text-xs font-semibold text-zinc-500">Contact Number</span>
-                          <span className="text-zinc-800">{selectedCustomer.phone}</span>
-                        </div>
-                        <div className="border-b border-zinc-100 pb-2">
-                          <span className="block text-xs font-semibold text-zinc-500">Email Address</span>
-                          <span className="text-zinc-800">{selectedCustomer.email}</span>
-                        </div>
-                        <div className="border-b border-zinc-100 pb-2">
-                          <span className="block text-xs font-semibold text-zinc-500">Physical Address</span>
-                          <span className="text-zinc-800">{selectedCustomer.street}, {selectedCustomer.city} {selectedCustomer.zip}</span>
-                        </div>
-                        <div className="border-b border-zinc-100 pb-2 bg-yellow-50 p-2 rounded">
-                          <span className="block text-xs font-semibold text-yellow-800">License Number</span>
-                          <span className="font-mono font-bold text-yellow-900">{selectedCustomer.driverLicenseNumber}</span>
-                        </div>
-                        <div className="border-b border-zinc-100 pb-2 pt-2">
-                           <span className="block text-xs font-semibold text-zinc-500">Status</span>
-                           <span className="text-green-700 font-semibold bg-green-50 px-2 py-0.5 rounded-sm">Verified</span>
-                        </div>
+                  {showQuickAddForm ? (
+                    <form onSubmit={handleQuickAddSubmit} className="bg-zinc-50 rounded-xl p-5 border border-zinc-200 space-y-4">
+                      <div className="flex justify-between items-center border-b pb-2 mb-2">
+                        <h4 className="font-extrabold text-zinc-800 text-sm">Create New Customer File</h4>
+                        <button 
+                          type="button" 
+                          onClick={() => { setShowQuickAddForm(false); setQaError(''); }}
+                          className="text-xs text-red-600 font-bold hover:underline"
+                        >
+                          Cancel
+                        </button>
                       </div>
 
-                      <div className="mt-6 flex gap-4 text-xs font-medium">
-                        <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
-                          <div className="text-zinc-500 mb-1">Total Reservations</div>
-                          <div className="text-lg font-bold text-zinc-800">{customerHistory.length}</div>
-                        </div>
-                        <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
-                          <div className="text-zinc-500 mb-1">Outstanding Balance</div>
-                          <div className="text-lg font-bold text-red-600">$0.00</div>
-                        </div>
-                        <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
-                          <div className="text-zinc-500 mb-1">Lifetime Revenue</div>
-                          <div className="text-lg font-bold text-green-700">${customerHistory.reduce((s,r) => s + r.totalAmount, 0).toFixed(2)}</div>
-                        </div>
-                      </div>
-
-                      {customerHistory.length > 0 && (
-                        <div className="mt-6">
-                          <h4 className="font-semibold text-zinc-800 text-sm mb-2">Recent Reservation History</h4>
-                          <div className="border border-zinc-200 rounded overflow-hidden">
-                            <table className="w-full text-xs text-left">
-                              <thead className="bg-zinc-100 text-zinc-600">
-                                <tr>
-                                  <th className="px-3 py-2 font-medium">Ref ID</th>
-                                  <th className="px-3 py-2 font-medium">Period</th>
-                                  <th className="px-3 py-2 font-medium">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-zinc-100">
-                                {customerHistory.slice(0, 2).map((res) => (
-                                  <tr key={res.id} className="hover:bg-zinc-50">
-                                    <td className="px-3 py-2 font-mono text-blue-600">{res.id.substring(0,8)}</td>
-                                    <td className="px-3 py-2">{res.pickupDate} to {res.returnDate}</td>
-                                    <td className="px-3 py-2"><span className="uppercase text-[9px] font-bold tracking-wider">{res.status}</span></td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                      {qaError && (
+                        <div className="p-2 bg-red-50 text-red-700 border-l-4 border-red-500 rounded text-xs font-semibold">
+                          {qaError}
                         </div>
                       )}
-                    </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">First Name *</label>
+                          <input 
+                            type="text" 
+                            required
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaFirstName} 
+                            onChange={e => setQaFirstName(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Last Name *</label>
+                          <input 
+                            type="text" 
+                            required
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaLastName} 
+                            onChange={e => setQaLastName(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Email *</label>
+                          <input 
+                            type="email" 
+                            required
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaEmail} 
+                            onChange={e => setQaEmail(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Phone Number</label>
+                          <input 
+                            type="tel" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaPhone} 
+                            onChange={e => setQaPhone(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Street Address</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaStreet} 
+                            onChange={e => setQaStreet(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Apt, Suite, Unit, etc.</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaStreet2} 
+                            onChange={e => setQaStreet2(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">City</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaCity} 
+                            onChange={e => setQaCity(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">State / Province</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaState} 
+                            onChange={e => setQaState(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">ZIP / Postal Code</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaZip} 
+                            onChange={e => setQaZip(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Country</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaCountry} 
+                            onChange={e => setQaCountry(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Driver License Number</label>
+                          <input 
+                            type="text" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaDriverLicenseNumber} 
+                            onChange={e => setQaDriverLicenseNumber(e.target.value)} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">License Expiration</label>
+                          <input 
+                            type="date" 
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaDriverLicenseExpiration} 
+                            onChange={e => setQaDriverLicenseExpiration(e.target.value)} 
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-zinc-600 mb-1">Internal Notes</label>
+                          <textarea 
+                            rows={2}
+                            className="w-full border border-zinc-300 bg-white rounded p-2 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" 
+                            value={qaNotes} 
+                            onChange={e => setQaNotes(e.target.value)} 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2 border-t">
+                        <button 
+                          type="button"
+                          onClick={() => { setShowQuickAddForm(false); setQaError(''); }}
+                          className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded font-bold text-xs cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          type="submit"
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Save Customer & Proceed
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="mb-6">
+                        <select 
+                          className="w-full border border-zinc-300 bg-zinc-50 rounded p-3 text-sm font-semibold text-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                          value={customerId}
+                          onChange={e => setCustomerId(e.target.value)}
+                        >
+                          <option value="">-- Select Customer File --</option>
+                          {store.customers.map(c => (
+                            <option key={c.id} value={c.id}>{c.firstName} {c.lastName} | Phone: {c.phone} | {c.email}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedCustomer && (
+                        <div className="border border-zinc-200 rounded p-5 bg-white text-sm">
+                          <h4 className="font-semibold text-zinc-800 text-base mb-4 flex gap-2 items-center"><Building className="w-4 h-4 text-zinc-400" /> Customer Profile Verification</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                            <div className="border-b border-zinc-100 pb-2">
+                              <span className="block text-xs font-semibold text-zinc-500">FullName</span>
+                              <span className="font-bold text-zinc-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</span>
+                            </div>
+                            <div className="border-b border-zinc-100 pb-2">
+                              <span className="block text-xs font-semibold text-zinc-500">Contact Number</span>
+                              <span className="text-zinc-800">{selectedCustomer.phone}</span>
+                            </div>
+                            <div className="border-b border-zinc-100 pb-2">
+                              <span className="block text-xs font-semibold text-zinc-500">Email Address</span>
+                              <span className="text-zinc-800">{selectedCustomer.email}</span>
+                            </div>
+                            <div className="border-b border-zinc-100 pb-2">
+                              <span className="block text-xs font-semibold text-zinc-500">Physical Address</span>
+                              <span className="text-zinc-800">{selectedCustomer.street}, {selectedCustomer.city} {selectedCustomer.zip}</span>
+                            </div>
+                            <div className="border-b border-zinc-100 pb-2 bg-yellow-50 p-2 rounded">
+                              <span className="block text-xs font-semibold text-yellow-800">License Number</span>
+                              <span className="font-mono font-bold text-yellow-900">{selectedCustomer.driverLicenseNumber}</span>
+                            </div>
+                            <div className="border-b border-zinc-100 pb-2 pt-2">
+                               <span className="block text-xs font-semibold text-zinc-500">Status</span>
+                               <span className="text-green-700 font-semibold bg-green-50 px-2 py-0.5 rounded-sm">Verified</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 flex gap-4 text-xs font-medium">
+                            <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
+                              <div className="text-zinc-500 mb-1">Total Reservations</div>
+                              <div className="text-lg font-bold text-zinc-800">{customerHistory.length}</div>
+                            </div>
+                            <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
+                              <div className="text-zinc-500 mb-1">Outstanding Balance</div>
+                              <div className="text-lg font-bold text-red-600">$0.00</div>
+                            </div>
+                            <div className="bg-zinc-50 p-3 rounded flex-1 border border-zinc-100">
+                              <div className="text-zinc-500 mb-1">Lifetime Revenue</div>
+                              <div className="text-lg font-bold text-green-700">${customerHistory.reduce((s,r) => s + r.totalAmount, 0).toFixed(2)}</div>
+                            </div>
+                          </div>
+
+                          {customerHistory.length > 0 && (
+                            <div className="mt-6">
+                              <h4 className="font-semibold text-zinc-800 text-sm mb-2">Recent Reservation History</h4>
+                              <div className="border border-zinc-200 rounded overflow-hidden">
+                                <table className="w-full text-xs text-left">
+                                  <thead className="bg-zinc-100 text-zinc-600">
+                                    <tr>
+                                      <th className="px-3 py-2 font-medium">Ref ID</th>
+                                      <th className="px-3 py-2 font-medium">Period</th>
+                                      <th className="px-3 py-2 font-medium">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-100">
+                                    {customerHistory.slice(0, 2).map((res) => (
+                                      <tr key={res.id} className="hover:bg-zinc-50">
+                                        <td className="px-3 py-2 font-mono text-blue-600">{res.id.substring(0,8)}</td>
+                                        <td className="px-3 py-2">{res.pickupDate} to {res.returnDate}</td>
+                                        <td className="px-3 py-2"><span className="uppercase text-[9px] font-bold tracking-wider">{res.status}</span></td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               </div>

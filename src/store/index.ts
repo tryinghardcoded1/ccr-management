@@ -36,7 +36,7 @@ interface AppState {
   deleteSystemUser: (id: string) => void;
 
   // Actions
-  addCustomer: (customer: Omit<Customer, 'id' | 'totalRentals' | 'activeReservations' | 'totalPaid' | 'outstandingBalance' | 'totalClaims' | 'totalFines' | 'lifetimeRevenue'>) => void;
+  addCustomer: (customer: Omit<Customer, 'id' | 'totalRentals' | 'activeReservations' | 'totalPaid' | 'outstandingBalance' | 'totalClaims' | 'totalFines' | 'lifetimeRevenue'>) => string;
   updateCustomer: (id: string, customer: Partial<Customer>) => void;
 
 
@@ -114,13 +114,14 @@ export const useStore = create<AppState>()(
           systemUsers: state.systemUsers.filter((u) => u.id !== id),
         })),
 
-      addCustomer: (data) =>
+      addCustomer: (data) => {
+        const id = uuidv4();
         set((state) => ({
           customers: [
             ...state.customers,
             {
               ...data,
-              id: uuidv4(),
+              id,
               totalRentals: 0,
               activeReservations: 0,
               totalPaid: 0,
@@ -130,7 +131,9 @@ export const useStore = create<AppState>()(
               lifetimeRevenue: 0,
             },
           ],
-        })),
+        }));
+        return id;
+      },
 
       updateCustomer: (id, data) =>
         set((state) => ({
@@ -376,6 +379,7 @@ export const useStore = create<AppState>()(
             },
           ],
         }));
+        get().recalculateReservationTotals(reservationId);
       },
 
       refundSecurityDeposit: (reservationId, amount, method) => {
@@ -407,6 +411,7 @@ export const useStore = create<AppState>()(
             },
           ],
         }));
+        get().recalculateReservationTotals(reservationId);
       },
 
       recalculateReservationTotals: (reservationId) => {
@@ -428,13 +433,29 @@ export const useStore = create<AppState>()(
 
         const balance = totalAmount - totalPaid;
 
-        set((state) => ({
-          reservations: state.reservations.map((r) =>
-            r.id === reservationId ? { ...r, totalAmount, balance } : r
-          ),
-        }));
+        set((state) => {
+          const updatedReservations = state.reservations.map((r) => {
+            if (r.id !== reservationId) return r;
 
-        get().recalculateCustomerStats(res.customerId);
+            const isFullyPaid = balance <= 0;
+            const isDepositRecorded = r.securityDepositStatus === 'On Hold';
+
+            let updatedStatus = r.status;
+            if (isFullyPaid && isDepositRecorded && ['Pending', 'Confirmed'].includes(r.status)) {
+              updatedStatus = 'Checked Out';
+            }
+
+            return { ...r, totalAmount, balance, status: updatedStatus };
+          });
+
+          return { reservations: updatedReservations };
+        });
+
+        const updatedRes = get().reservations.find((r) => r.id === reservationId);
+        if (updatedRes) {
+          get().syncVehicleStatus(updatedRes);
+          get().recalculateCustomerStats(updatedRes.customerId);
+        }
       },
 
       recalculateCustomerStats: (customerId) => {
