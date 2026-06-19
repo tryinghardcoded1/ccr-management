@@ -21,13 +21,25 @@ import Reports from './pages/Reports';
 import Archive from './pages/Archive';
 import SystemUsers from './pages/SystemUsers';
 import KnowledgeBase from './pages/KnowledgeBase';
+import Contracts from './pages/Contracts';
 
 import NewReservationPage from './pages/NewReservationPage';
 import CustomerVoicePortal from './pages/CustomerVoicePortal';
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isInitialized } = useAuth();
   const location = useLocation();
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-4 text-sm font-semibold text-gray-500 uppercase tracking-widest">Loading Access...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -62,6 +74,7 @@ export default function App() {
           <Route path="users" element={<SystemUsers />} />
           <Route path="archive" element={<Archive />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
+          <Route path="contracts" element={<Contracts />} />
         </Route>
         <Route path="/portal" element={<CustomerVoicePortal />} />
       </Routes>

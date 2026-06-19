@@ -40,7 +40,7 @@ export default function Layout(): ReactElement {
           const nameParts = customerName.split(" ");
           const firstName = nameParts[0] || "Voice";
           const lastName = nameParts.slice(1).join(" ") || "Customer";
-          custId = store.addCustomer({
+          custId = await store.addCustomer({
             firstName,
             lastName,
             email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com`,
@@ -216,6 +216,7 @@ export default function Layout(): ReactElement {
     { to: '/payments', label: 'Payment Record', icon: CreditCard },
     { to: '/reports', label: 'System Reports', icon: FileText },
     { to: '/charges', label: 'Rate Management', icon: Settings },
+    { to: '/contracts', label: 'Contracts & Agreements', icon: FileText },
     { to: '/archive', label: 'Archive', icon: Archive },
     { to: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
     { to: '/portal', label: 'Voice Portal', icon: Phone },

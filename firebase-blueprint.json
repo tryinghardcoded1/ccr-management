@@ -1,0 +1,193 @@
+{
+  "entities": {
+    "User": {
+      "title": "SystemUser",
+      "description": "A system user or staff member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A car rental customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "street": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "zip": { "type": "string" },
+        "country": { "type": "string" },
+        "driverLicenseNumber": { "type": "string" },
+        "driverLicenseExpiration": { "type": "string" },
+        "totalRentals": { "type": "integer" },
+        "activeReservations": { "type": "integer" },
+        "totalPaid": { "type": "number" },
+        "outstandingBalance": { "type": "number" },
+        "totalClaims": { "type": "number" },
+        "totalFines": { "type": "number" },
+        "lifetimeRevenue": { "type": "number" },
+        "lastRentalDate": { "type": "string" }
+      },
+      "required": ["id", "firstName", "lastName", "email", "phone"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "A rental vehicle details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "make": { "type": "string" },
+        "model": { "type": "string" },
+        "year": { "type": "integer" },
+        "licensePlate": { "type": "string" },
+        "status": { "type": "string" },
+        "dailyRate": { "type": "number" },
+        "category": { "type": "string" },
+        "color": { "type": "string" },
+        "VIN": { "type": "string" },
+        "mileage": { "type": "integer" }
+      },
+      "required": ["id", "make", "model", "year", "licensePlate", "status", "dailyRate"]
+    },
+    "Reservation": {
+      "title": "Reservation",
+      "description": "A car booking reservation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "status": { "type": "string" },
+        "pickupDate": { "type": "string" },
+        "pickupTime": { "type": "string" },
+        "returnDate": { "type": "string" },
+        "returnTime": { "type": "string" },
+        "baseRental": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "balance": { "type": "number" },
+        "bookingDate": { "type": "string" },
+        "vehicleReturned": { "type": "boolean" },
+        "securityDepositAmount": { "type": "number" },
+        "securityDepositStatus": { "type": "string" },
+        "securityDepositRefunded": { "type": "boolean" },
+        "securityDepositRefundAmount": { "type": "number" },
+        "securityDepositRefundMethod": { "type": "string" },
+        "securityDepositRefundDate": { "type": "string" },
+        "securityDepositCollectedDate": { "type": "string" },
+        "securityDepositHoldUntil": { "type": "string" }
+      },
+      "required": ["id", "customerId", "vehicleId", "status", "pickupDate", "returnDate"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "A payment trace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reservationId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "method": { "type": "string" },
+        "type": { "type": "string" },
+        "label": { "type": "string" }
+      },
+      "required": ["id", "reservationId", "customerId", "amount", "date", "method", "type"]
+    },
+    "ChargeTemplate": {
+      "title": "ChargeTemplate",
+      "description": "A billing charge preset template",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "rate": { "type": "number" },
+        "perDay": { "type": "boolean" }
+      },
+      "required": ["id", "name", "category", "rate"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "System users collection"
+    },
+    "customers": {
+      "schema": "Customer",
+      "description": "Customers registry"
+    },
+    "vehicles": {
+      "schema": "Vehicle",
+      "description": "Active fleet inventory"
+    },
+    "reservations": {
+      "schema": "Reservation",
+      "description": "All vehicle bookings"
+    },
+    "payments": {
+      "schema": "Payment",
+      "description": "All customer payments and charges"
+    },
+    "chargeTemplates": {
+      "schema": "ChargeTemplate",
+      "description": "Templates of charges"
+    },
+    "chargeItems": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Charge items list"
+    },
+    "claims": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Damage claim trace"
+    },
+    "fines": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Fine items"
+    },
+    "externalCharges": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "External charges like fuel, insurance, tolls"
+    },
+    "commissions": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "System agent or standard commissions"
+    },
+    "securityDeposits": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Security deposits status"
+    },
+    "maintenance": {
+      "schema": { "$ref": "#/entities/Vehicle" },
+      "description": "Repair and maintenance"
+    },
+    "archivedCustomers": {
+      "schema": "Customer",
+      "description": "Archived customers"
+    },
+    "archivedVehicles": {
+      "schema": "Vehicle",
+      "description": "Archived vehicles"
+    },
+    "archivedReservations": {
+      "schema": "Reservation",
+      "description": "Archived reservations"
+    },
+    "archivedChargeTemplates": {
+      "schema": "ChargeTemplate",
+      "description": "Archived charge templates"
+    }
+  }
+}

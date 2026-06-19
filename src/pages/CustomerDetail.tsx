@@ -7,6 +7,8 @@ import {
   FileText, CreditCard, Clipboard, Shield, Plus, Printer, Trash, Upload, Camera, DollarSign, CheckCircle2
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../lib/firebase';
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -136,14 +138,28 @@ export default function CustomerDetail() {
     setPaymentMethods([...paymentMethods, { id: Math.random().toString(), cardBrand: brand, last4, exp: '08/2029' }]);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setFiles([...files, {
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        date: new Date().toISOString().split('T')[0]
-      }]);
+      setSuccessMsg('Uploading document to Firebase Storage...');
+      try {
+        const fileRef = ref(storage, `customers/${customer.id}/documents/${file.name}`);
+        await uploadBytes(fileRef, file);
+        const url = await getDownloadURL(fileRef);
+        
+        setFiles(prev => [...prev, {
+          name: file.name,
+          size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+          date: new Date().toISOString().split('T')[0],
+          url
+        } as any]);
+        setSuccessMsg('Document successfully uploaded to Firebase Storage!');
+        setTimeout(() => setSuccessMsg(''), 3500);
+      } catch (err) {
+        console.error('[Storage] Upload error:', err);
+        setSuccessMsg('Upload failed. Please check your storage bucket permissions.');
+        setTimeout(() => setSuccessMsg(''), 3500);
+      }
     }
   };
 

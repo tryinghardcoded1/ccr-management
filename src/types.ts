@@ -132,3 +132,16 @@ export interface Maintenance {
   notes?: string;
   cost: number;
 }
+
+export interface RentalContract {
+  id: string;
+  name: string;
+  type: string;
+  content: string;
+  status: 'Active' | 'Inactive';
+  uploadedAt: string;
+  uploadedBy: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: string;
+}

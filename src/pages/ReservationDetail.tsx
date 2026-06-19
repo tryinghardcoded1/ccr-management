@@ -17,6 +17,7 @@ export default function ReservationDetail() {
   const vehicle = store.vehicles.find(v => v.id === reservation?.vehicleId);
   const charges = store.chargeItems.filter(c => c.reservationId === id);
   const payments = store.payments.filter(p => p.reservationId === id);
+  const activeContractObj = store.contracts.find(c => c.status === 'Active');
 
   // Active floating dialog modal state
   const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement'>(null);
@@ -1413,11 +1414,17 @@ export default function ReservationDetail() {
               </div>
 
               {/* Standard Policy Terms & Disclosures */}
-              <div className="text-[10px] text-slate-500 leading-normal space-y-2 pt-4 border-t border-slate-100">
-                <p><strong>1. Driver Certification:</strong> By signing below, the Lessee certifies that they hold a valid driver's license as detailed above, and are fully qualified and permitted to operate the assigned vehicle unit under current local, state, and federal laws.</p>
-                <p><strong>2. Insurance & Liability:</strong> The Lessee assumes full financial responsibility for any physical vehicle damage, regulatory fines, speeding tickets, toll violations, or third-party liabilities incurred during the scope of this active rental period.</p>
-                <p><strong>3. Security Deposit:</strong> A deposit authorization hold is recorded on the corporate ledger. It will be fully released or liquidated as necessary to offset unpaid tolls, high-wear damages, fuel replacement fees, or cleanup costs upon active physical return inspection.</p>
-                <p><strong>4. Return Rules:</strong> Vehicles must be returned to the authorized depot on or before the specified date and time. Overdue returns exceeding a 1-hour grace margin will represent active default and escalate to additional rental day rates.</p>
+              <div className="text-[11px] text-slate-600 leading-relaxed space-y-2 pt-4 border-t border-slate-100 whitespace-pre-wrap font-sans">
+                {activeContractObj ? (
+                  activeContractObj.content
+                ) : (
+                  <>
+                    <p><strong>1. Driver Certification:</strong> By signing below, the Lessee certifies that they hold a valid driver's license as detailed above, and are fully qualified and permitted to operate the assigned vehicle unit under current local, state, and federal laws.</p>
+                    <p><strong>2. Insurance & Liability:</strong> The Lessee assumes full financial responsibility for any physical vehicle damage, regulatory fines, speeding tickets, toll violations, or third-party liabilities incurred during the scope of this active rental period.</p>
+                    <p><strong>3. Security Deposit:</strong> A deposit authorization hold is recorded on the corporate ledger. It will be fully released or liquidated as necessary to offset unpaid tolls, high-wear damages, fuel replacement fees, or cleanup costs upon active physical return inspection.</p>
+                    <p><strong>4. Return Rules:</strong> Vehicles must be returned to the authorized depot on or before the specified date and time. Overdue returns exceeding a 1-hour grace margin will represent active default and escalate to additional rental day rates.</p>
+                  </>
+                )}
               </div>
 
               {/* Signature Blocks with Cursive/Handwriting style digital indicator */}
