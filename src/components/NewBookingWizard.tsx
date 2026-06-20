@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { Check, ChevronRight, Calculator, UserPlus, FileText, AlertCircle, Play, Shield, MapPin, Building, Flag } from 'lucide-react';
+import { Check, ChevronRight, Calculator, UserPlus, FileText, AlertCircle, Play, Shield, MapPin, Building, Flag, CreditCard, ShieldAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface NewBookingWizardProps {
@@ -13,7 +13,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   const store = useStore();
   const navigate = useNavigate();
   
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1); // 1: Dates, 2: Features, 3: Customer, 4: Confirm
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1); // 1: Dates, 2: Features, 3: Customer, 4: Summary
   
   // Try to get customerId from URL if available
   const urlParams = new URLSearchParams(window.location.search);
@@ -30,6 +30,24 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   const [vehicleId, setVehicleId] = useState('');
   const [selectedChargeTemplateIds, setSelectedChargeTemplateIds] = useState<string[]>([]);
   const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [wizardSecurityDeposit, setWizardSecurityDeposit] = useState<number>(500);
+  const [includeDepositInTotal, setIncludeDepositInTotal] = useState<boolean>(false);
+
+  // Submit states and Checkout config
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [wizardStatus, setWizardStatus] = useState<'Checked Out' | 'Pending'>('Checked Out');
+  const [wizardPaymentMethod, setWizardPaymentMethod] = useState('Credit Card');
+  const [wizardHoldUntil, setWizardHoldUntil] = useState('');
+
+  useEffect(() => {
+    try {
+      const parsed = parseISO(returnDate);
+      if (!isNaN(parsed.getTime())) {
+        const holdDate = new Date(parsed.getTime() + 86400000 * 3);
+        setWizardHoldUntil(format(holdDate, 'yyyy-MM-dd'));
+      }
+    } catch (e) {}
+  }, [returnDate]);
 
   // Quick Add Customer Form State
   const [showQuickAddForm, setShowQuickAddForm] = useState(false);
@@ -69,14 +87,43 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
     return store.reservations.filter(r => r.customerId === selectedCustomer.id).sort((a,b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [selectedCustomer, store.reservations]);
 
-  const handleQuickAddSubmit = (e: React.FormEvent) => {
+  const isVehicleAvailable = (vId: string) => {
+    return !store.reservations.some(r => {
+      if (r.vehicleId !== vId) return false;
+      if (r.status === 'Cancelled' || r.status === 'Completed') return false;
+      
+      try {
+        const buildTime = (d: string, t?: string) => {
+          if (!d) return 0;
+          const time = t ? (t.length === 4 ? `0${t}` : t) : '00:00';
+          const dt = new Date(`${d}T${time}:00`);
+          return isNaN(dt.getTime()) ? 0 : dt.getTime();
+        };
+
+        const rStart = buildTime(r.pickupDate, r.pickupTime);
+        const rEnd = buildTime(r.returnDate, r.returnTime) || (rStart + 86400000);
+        const dStart = buildTime(pickupDate, pickupTime);
+        const dEnd = buildTime(returnDate, returnTime);
+
+        if (rStart === 0 || dStart === 0) return false;
+
+        return rStart < dEnd && rEnd > dStart;
+      } catch (e) {
+        return false;
+      }
+    });
+  };
+
+  const handleQuickAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qaFirstName || !qaLastName || !qaEmail) {
       setQaError('First Name, Last Name, and Email are strictly required fields.');
       return;
     }
+    setIsSubmitting(true);
+    setQaError('');
     try {
-      const newCustId = store.addCustomer({
+      const newCustId = await store.addCustomer({
         firstName: qaFirstName,
         lastName: qaLastName,
         email: qaEmail,
@@ -115,6 +162,8 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
       setStep(4);
     } catch (err: any) {
       setQaError(err.message || 'Error occurred saving customer profile.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -130,24 +179,35 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
     setStep((prev) => (prev + 1) as 1 | 2 | 3 | 4);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setError('');
     try {
-      const newId = store.createReservation({
+      const newId = await store.createReservation({
         customerId,
         vehicleId,
         pickupDate,
         pickupTime,
         returnDate,
         returnTime,
-        status: 'Pending',
+        status: wizardStatus,
         notes: '',
-        securityDepositAmount: 500, // Default security deposit
+        securityDepositAmount: wizardSecurityDeposit,
+        includeDepositInTotal: includeDepositInTotal,
+        paymentMethod: wizardPaymentMethod,
+        securityDepositHoldUntil: wizardHoldUntil,
       }, selectedChargeTemplateIds);
-      
-      onClose();
-      navigate(`/reservations/${newId}`);
+
+      if (!embedded) {
+        onClose();
+      }
+      // Pass state to auto-open checkout on the details page if reserved, else no popup
+      navigate(`/reservations/${newId}`, { state: { openCheckout: wizardStatus === 'Pending' } });
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -188,7 +248,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
         <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-4 relative">
           
           {/* Main Form Area */}
-          <div className="lg:col-span-3 overflow-y-auto p-6 md:p-8 bg-white">
+          <div className={`${step < 4 ? 'lg:col-span-3' : 'lg:col-span-4'} overflow-y-auto p-6 md:p-8 bg-white`}>
             {error && (
               <div className="mb-6 p-3 bg-red-50 text-red-700 border-l-4 border-red-500 text-sm flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -243,28 +303,34 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                 <section>
                   <h3 className="font-semibold text-zinc-800 text-base mb-3 border-b pb-2 pt-4">Vehicle Assignment</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {store.vehicles.map(v => (
-                      <div 
-                        key={v.id} 
-                        onClick={() => setVehicleId(v.id)}
-                        className={`cursor-pointer border rounded-md p-3 transition-colors duration-150 ${vehicleId === v.id ? 'border-blue-600 bg-blue-50 shadow-inner' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                      >
-                        <div className="flex gap-3">
-                           <div className="mt-1 w-4 h-4 rounded-full border border-zinc-300 flex items-center justify-center shrink-0">
-                             {vehicleId === v.id && <div className="w-2.5 h-2.5 bg-blue-600 rounded-full" />}
-                           </div>
-                           <div className="flex-1">
-                             <div className="font-bold text-zinc-900 text-sm">{v.make} {v.model} <span className="text-zinc-500 font-normal">({v.year})</span></div>
-                             <div className="text-[11px] text-zinc-500 font-mono mt-0.5">{v.licensePlate} • {v.category.toUpperCase()}</div>
-                             <div className="text-zinc-500 text-[11px] mt-1 line-clamp-1"><Flag className="w-3 h-3 inline text-green-600 mb-0.5"/> {v.status}</div>
-                           </div>
-                           <div className="text-right">
-                             <div className="font-bold text-blue-700">${v.dailyRate}</div>
-                             <div className="text-[10px] text-zinc-500">/ day</div>
-                           </div>
+                    {store.vehicles.map(v => {
+                      const isAvailable = isVehicleAvailable(v.id) && v.status === 'Available';
+                      return (
+                        <div 
+                          key={v.id} 
+                          onClick={() => {
+                            if (isAvailable) setVehicleId(v.id);
+                          }}
+                          className={`border rounded-md p-3 transition-colors duration-150 ${isAvailable ? 'cursor-pointer hover:bg-zinc-50 border-zinc-200' : 'cursor-not-allowed opacity-50 bg-zinc-50 border-zinc-100'} ${vehicleId === v.id ? 'border-blue-600 bg-blue-50 shadow-inner' : ''}`}
+                        >
+                          <div className="flex gap-3">
+                            <div className="mt-1 w-4 h-4 rounded-full border border-zinc-300 flex items-center justify-center shrink-0">
+                              {vehicleId === v.id && <div className="w-2.5 h-2.5 bg-blue-600 rounded-full" />}
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-bold text-zinc-900 text-sm">{v.make} {v.model} <span className="text-zinc-500 font-normal">({v.year})</span></div>
+                              <div className="text-[11px] text-zinc-500 font-mono mt-0.5">{v.licensePlate} • {v.category.toUpperCase()}</div>
+                              <div className="text-zinc-500 text-[11px] mt-1 line-clamp-1"><Flag className="w-3 h-3 inline text-green-600 mb-0.5"/> {v.status}</div>
+                              {!isAvailable && <div className="text-[10px] text-red-500 mt-1 font-semibold uppercase tracking-wider">Reserved for dates</div>}
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold text-blue-700">${v.dailyRate}</div>
+                              <div className="text-[10px] text-zinc-500">/ day</div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               </div>
@@ -581,13 +647,163 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
 
             {/* STEP 4: Confirmation Summary */}
             {step === 4 && (
-              <div className="space-y-6">
-                 <div className="p-8 border-2 border-dashed border-blue-200 bg-blue-50/30 rounded text-center">
-                    <div className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Check className="w-6 h-6" />
+              <div className="space-y-6 animate-in fade-in duration-300">
+                 <h2 className="text-xl font-bold text-zinc-900 mb-4 border-b pb-2">Review Reservation Details</h2>
+
+                 {/* Checkout & Immediate Payment Configuration */}
+                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 border-b border-blue-100 pb-2 mb-2">
+                       <CreditCard className="w-5 h-5 text-blue-600" />
+                       <h4 className="font-bold text-sm text-blue-900 uppercase tracking-wider">Checkout / Immediate Payment Setup</h4>
                     </div>
-                    <h2 className="text-xl font-bold text-blue-900 mb-2">Ready to Initialize Reservation</h2>
-                    <p className="text-blue-700/80 text-sm max-w-sm mx-auto">Please review the summary details on the right panel. Clicking confirm will lock in this reservation and proceed to Payment / Security Deposit collection.</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                       {/* Selector */}
+                       <div className="space-y-2">
+                          <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wide">Reservation Mode</label>
+                          <div className="space-y-2 mt-1">
+                             <label className="flex items-center gap-2 text-sm text-zinc-800 font-semibold cursor-pointer">
+                                <input 
+                                   type="radio"
+                                   name="wizardStatus"
+                                   value="Checked Out"
+                                   checked={wizardStatus === 'Checked Out'}
+                                   onChange={() => setWizardStatus('Checked Out')}
+                                   className="w-4 h-4 text-blue-600 border-zinc-300 focus:ring-blue-500"
+                                />
+                                Pay &amp; Check Out Now
+                             </label>
+                             <label className="flex items-center gap-2 text-sm text-zinc-800 font-semibold cursor-pointer">
+                                <input 
+                                   type="radio"
+                                   name="wizardStatus"
+                                   value="Pending"
+                                   checked={wizardStatus === 'Pending'}
+                                   onChange={() => setWizardStatus('Pending')}
+                                   className="w-4 h-4 text-blue-600 border-zinc-300 focus:ring-blue-500"
+                                />
+                                Reserve Only (Pending Payment)
+                             </label>
+                          </div>
+                       </div>
+
+                       {wizardStatus === 'Checked Out' && (
+                          <>
+                             {/* Payment Method */}
+                             <div className="space-y-1.5">
+                                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wide">Payment Method</label>
+                                <select
+                                   value={wizardPaymentMethod}
+                                   onChange={e => setWizardPaymentMethod(e.target.value)}
+                                   className="w-full border border-zinc-300 bg-white rounded p-2 text-xs font-bold text-zinc-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                >
+                                   <option value="Credit Card">Credit Card</option>
+                                   <option value="Debit Card">Debit Card</option>
+                                   <option value="Cash">Cash / Cashier Check</option>
+                                   <option value="Bank Transfer">Bank Transfer / ACH</option>
+                                   <option value="Venmo/Zelle">Venmo / Zelle</option>
+                                </select>
+                             </div>
+
+                             {/* Hold Unless / Until Date */}
+                             <div className="space-y-1.5">
+                                <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wide">Security Deposit Release Date</label>
+                                <input 
+                                   type="date"
+                                   value={wizardHoldUntil}
+                                   onChange={e => setWizardHoldUntil(e.target.value)}
+                                   className="w-full border border-zinc-300 bg-white rounded p-2 text-xs font-bold text-zinc-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono"
+                                />
+                                <span className="text-[10px] text-zinc-500 block leading-tight mt-1">Hold security release period</span>
+                             </div>
+                          </>
+                       )}
+                    </div>
+
+                    {wizardStatus === 'Checked Out' && (
+                       <div className="bg-blue-100/50 text-blue-800 rounded-lg p-3 text-xs flex gap-2 items-start mt-2">
+                          <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                          <p className="leading-normal">
+                             <strong>Immediate Payment Integration:</strong> Creating this booking in Checked Out status will record an Initial Rental Payment of <strong>${(totalAmount + (includeDepositInTotal ? wizardSecurityDeposit : 0)).toFixed(2)}</strong> so the Outstanding Balance is instantly <strong>$0.00</strong>. The vehicle will instantly shift to <strong>Rented</strong>.
+                          </p>
+                       </div>
+                    )}
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-zinc-50 p-5 rounded border border-zinc-200">
+                      <h4 className="font-bold text-sm text-zinc-700 mb-4 uppercase tracking-wider flex items-center gap-2"><MapPin className="w-4 h-4"/> Logistics & Vehicle</h4>
+                      <div className="text-sm space-y-3">
+                         <div className="flex justify-between border-b border-zinc-100 pb-2">
+                           <span className="text-zinc-500 font-medium">Pickup:</span>
+                           <span className="font-semibold text-zinc-800 text-right">{pickupDate} {pickupTime}<br/><span className="text-xs font-normal text-zinc-500">{pickupLocation}</span></span>
+                         </div>
+                         <div className="flex justify-between border-b border-zinc-100 pb-2">
+                           <span className="text-zinc-500 font-medium">Return:</span>
+                           <span className="font-semibold text-zinc-800 text-right">{returnDate} {returnTime}<br/><span className="text-xs font-normal text-zinc-500">{returnLocation}</span></span>
+                         </div>
+                         <div className="flex justify-between border-b border-zinc-100 pb-2">
+                           <span className="text-zinc-500 font-medium">Rental Duration:</span>
+                           <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{days} Day(s)</span>
+                         </div>
+                         <div className="flex justify-between pt-1">
+                           <span className="text-zinc-500 font-medium">Vehicle:</span>
+                           <span className="font-semibold text-zinc-800 text-right">{selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : 'None'}</span>
+                         </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-50 p-5 rounded border border-zinc-200">
+                      <h4 className="font-bold text-sm text-zinc-700 mb-4 uppercase tracking-wider flex items-center gap-2"><Calculator className="w-4 h-4"/> Financial Summary</h4>
+                      
+                      {/* Security Deposit Selection */}
+                      <div className="mb-4 p-3 bg-white border border-zinc-200 rounded-lg space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer uppercase tracking-wider">
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                              checked={includeDepositInTotal}
+                              onChange={e => setIncludeDepositInTotal(e.target.checked)}
+                            />
+                            Add Security Deposit to Grand Total
+                          </label>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-[11px] font-semibold text-zinc-500 mb-1">Security Deposit Amount ($)</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            className="w-full border border-zinc-300 rounded p-1.5 text-xs font-bold focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                            value={wizardSecurityDeposit}
+                            onChange={e => setWizardSecurityDeposit(parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="text-sm space-y-3">
+                         <div className="flex justify-between border-b border-zinc-100 pb-2">
+                           <span className="text-zinc-500 font-medium">Base Rental:</span>
+                           <span className="font-bold text-zinc-800">${baseRental.toFixed(2)}</span>
+                         </div>
+                         {selectedCharges.map(c => (
+                           <div key={c.id} className="flex justify-between border-b border-zinc-100 pb-2">
+                             <span className="text-zinc-500">{c.name}:</span>
+                             <span className="font-semibold text-zinc-800">${(c.perDay ? c.rate * days : c.rate).toFixed(2)}</span>
+                           </div>
+                         ))}
+                         {includeDepositInTotal && (
+                           <div className="flex justify-between border-b border-zinc-100 pb-2 text-zinc-800">
+                             <span className="text-zinc-500">Security Deposit:</span>
+                             <span className="font-semibold text-zinc-800">${wizardSecurityDeposit.toFixed(2)}</span>
+                           </div>
+                         )}
+                         <div className="flex justify-between pt-3 text-lg mt-2 font-bold text-blue-700">
+                           <span className="uppercase tracking-wide text-sm flex items-center">Grand Total:</span>
+                           <span className="text-2xl">${(totalAmount + (includeDepositInTotal ? wizardSecurityDeposit : 0)).toFixed(2)}</span>
+                         </div>
+                      </div>
+                    </div>
                  </div>
               </div>
             )}
@@ -613,9 +829,16 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
               ) : (
                 <button 
                   onClick={handleConfirm}
-                  className="px-8 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded shadow transition flex items-center gap-2"
+                  disabled={isSubmitting}
+                  className={`px-8 py-3 text-white text-sm font-bold rounded-lg shadow-md transition flex items-center gap-2 ${
+                    isSubmitting ? 'bg-zinc-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                  }`}
                 >
-                  Confirm Reservation <Play className="w-3.5 h-3.5 fill-current" />
+                  {isSubmitting ? (
+                    <>Creating Reservation...</>
+                  ) : (
+                    <>Confirm Reservation <Check className="w-4 h-4" /></>
+                  )}
                 </button>
               )}
             </div>
@@ -623,7 +846,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
           </div>
 
           {/* Right Summary Panel */}
-          <div className="h-full bg-zinc-50 border-l border-zinc-200 flex flex-col hidden lg:flex">
+          <div className={`h-full bg-zinc-50 border-l border-zinc-200 flex-col hidden ${step < 4 ? 'lg:flex' : 'hidden'}`}>
             <div className="px-5 py-4 border-b border-zinc-200 bg-zinc-100/50">
               <h3 className="font-semibold text-zinc-800 text-sm uppercase tracking-wide flex items-center gap-2 text-center justify-center">
                 <Calculator className="w-4 h-4 text-zinc-500" />

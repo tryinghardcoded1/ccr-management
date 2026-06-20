@@ -85,6 +85,7 @@ export interface Reservation {
   securityDepositRefundMethod?: string;
   securityDepositRefundDate?: string;
   securityDepositRefunded: boolean;
+  includeDepositInTotal?: boolean;
 }
 
 export interface Payment {

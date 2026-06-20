@@ -73,7 +73,7 @@ interface AppState {
   deleteChargeTemplate: (id: string) => Promise<void>;
   deleteChargeTemplates: (ids: string[]) => Promise<void>;
 
-  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded'>, selectedChargeTemplateIds: string[]) => Promise<string>;
+  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded'> & { paymentMethod?: string; securityDepositHoldUntil?: string; }, selectedChargeTemplateIds: string[]) => Promise<string>;
   updateReservationStatus: (id: string, status: ReservationStatus) => Promise<void>;
   updateReservation: (id: string, data: Partial<Reservation>) => Promise<void>;
   markVehicleReturned: (id: string) => Promise<void>;
@@ -84,6 +84,20 @@ interface AppState {
   
   processSecurityDeposit: (reservationId: string, amount: number, holdUntil: string) => Promise<void>;
   refundSecurityDeposit: (reservationId: string, amount: number, method: string) => Promise<void>;
+  refundAndCompleteReservation: (
+    reservationId: string, 
+    refundAmount: number, 
+    refundMethod: string, 
+    deductionReason?: 'Traffic Violation' | 'Late Return' | 'Car Damage' | 'Other', 
+    deductionAmount?: number, 
+    notes?: string
+  ) => Promise<void>;
+  checkoutReservation: (
+    reservationId: string, 
+    depositAmount: number, 
+    holdUntil: string, 
+    paymentMethod: string
+  ) => Promise<void>;
 
   recalculateCustomerStats: (customerId: string) => Promise<void>;
   recalculateReservationTotals: (reservationId: string) => Promise<void>;
@@ -316,22 +330,27 @@ export const useStore = create<AppState>((set, get) => ({
     await deleteDoc(doc(db, 'users', id));
   },
 
-  addCustomer: async (data) => {
-    const id = uuidv4();
-    const customerObj = {
-      ...data,
-      id,
-      totalRentals: 0,
-      activeReservations: 0,
-      totalPaid: 0,
-      outstandingBalance: 0,
-      totalClaims: 0,
-      totalFines: 0,
-      lifetimeRevenue: 0,
-    };
-    await setDoc(doc(db, 'customers', id), customerObj);
-    return id;
-  },
+   addCustomer: async (data) => {
+     const id = uuidv4();
+     const customerObj = {
+       ...data,
+       id,
+       totalRentals: 0,
+       activeReservations: 0,
+       totalPaid: 0,
+       outstandingBalance: 0,
+       totalClaims: 0,
+       totalFines: 0,
+       lifetimeRevenue: 0,
+     };
+     // Optimistically update local Zustand store so newly added customer appears on selection elements instantly
+     const current = get().customers;
+     if (!current.some(c => c.id === id)) {
+       set({ customers: [...current, customerObj] });
+     }
+     await setDoc(doc(db, 'customers', id), customerObj);
+     return id;
+   },
 
   updateCustomer: async (id, data) => {
     await updateDoc(doc(db, 'customers', id), data);
@@ -351,10 +370,15 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  addVehicle: async (data) => {
-    const id = uuidv4();
-    await setDoc(doc(db, 'vehicles', id), { ...data, id });
-  },
+   addVehicle: async (data) => {
+     const id = uuidv4();
+     const vehicleObj = { ...data, id } as Vehicle;
+     const current = get().vehicles;
+     if (!current.some(v => v.id === id)) {
+       set({ vehicles: [...current, vehicleObj] });
+     }
+     await setDoc(doc(db, 'vehicles', id), vehicleObj);
+   },
 
   updateVehicle: async (id, data) => {
     await updateDoc(doc(db, 'vehicles', id), data);
@@ -416,13 +440,30 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
 
     // Check overlap
-    const overlap = state.reservations.some(r => 
-      r.vehicleId === data.vehicleId && 
-      r.status !== 'Cancelled' &&
-      r.status !== 'Completed' &&
-      ((data.pickupDate >= r.pickupDate && data.pickupDate <= r.returnDate) ||
-       (data.returnDate >= r.pickupDate && data.returnDate <= r.returnDate))
-    );
+    const overlap = state.reservations.some(r => {
+      if (r.vehicleId !== data.vehicleId) return false;
+      if (r.status === 'Cancelled' || r.status === 'Completed') return false;
+
+      try {
+        const buildTime = (d: string, t?: string) => {
+          if (!d) return 0;
+          const time = t ? (t.length === 4 ? `0${t}` : t) : '00:00';
+          const dt = new Date(`${d}T${time}:00`);
+          return isNaN(dt.getTime()) ? 0 : dt.getTime();
+        };
+
+        const rStart = buildTime(r.pickupDate, r.pickupTime);
+        const rEnd = buildTime(r.returnDate, r.returnTime) || (rStart + 86400000); // fallback to 1 day
+        const dStart = buildTime(data.pickupDate, data.pickupTime);
+        const dEnd = buildTime(data.returnDate, data.returnTime);
+
+        if (rStart === 0 || dStart === 0) return false;
+
+        return rStart < dEnd && rEnd > dStart;
+      } catch (e) {
+        return false;
+      }
+    });
     if (overlap) throw new Error("Vehicle already reserved for selected dates.");
 
     const vehicle = state.vehicles.find((v) => v.id === data.vehicleId);
@@ -431,21 +472,57 @@ export const useStore = create<AppState>((set, get) => ({
 
     const baseRental = vehicle ? vehicle.dailyRate * days : 0;
 
+    // Calculate final totalAmount immediately
+    let computedTotalAmount = baseRental;
+    for (const templateId of selectedChargeTemplateIds) {
+      const t = state.chargeTemplates.find((temp) => temp.id === templateId);
+      if (t) {
+        computedTotalAmount += t.perDay ? t.rate * days : t.rate;
+      }
+    }
+    const depositAmount = data.securityDepositAmount || 0;
+    if (data.includeDepositInTotal && depositAmount > 0) {
+      computedTotalAmount += depositAmount;
+    }
+
+    const isCheckedOut = data.status === 'Checked Out';
+    const date = new Date().toISOString();
+    const paymentMethod = data.paymentMethod || 'Credit Card';
+    const holdUntil = data.securityDepositHoldUntil || new Date(Date.now() + 86400000 * (days + 3)).toISOString().split('T')[0];
+
     const newReservation: Reservation = {
-      ...data,
+      customerId: data.customerId,
+      vehicleId: data.vehicleId,
+      pickupDate: data.pickupDate,
+      pickupTime: data.pickupTime,
+      returnDate: data.returnDate,
+      returnTime: data.returnTime,
+      status: data.status,
+      notes: data.notes || '',
       id,
       baseRental,
-      totalAmount: baseRental,
-      balance: baseRental,
+      totalAmount: computedTotalAmount,
+      balance: isCheckedOut ? 0 : computedTotalAmount,
       bookingDate: new Date().toISOString(),
       vehicleReturned: false,
-      securityDepositAmount: data.securityDepositAmount || 0,
-      securityDepositStatus: (data.securityDepositAmount && data.securityDepositAmount > 0) ? 'Pending' : 'None',
+      securityDepositAmount: depositAmount,
+      securityDepositStatus: isCheckedOut 
+        ? (depositAmount > 0 ? 'On Hold' : 'None')
+        : (depositAmount > 0 ? 'Pending' : 'None'),
       securityDepositRefunded: false,
+      securityDepositCollectedDate: isCheckedOut ? date : undefined,
+      securityDepositHoldUntil: isCheckedOut ? holdUntil : undefined,
+      includeDepositInTotal: data.includeDepositInTotal || false,
     };
 
-    // Save Reservation Room
-    await setDoc(doc(db, 'reservations', id), newReservation);
+     // Optimistically append newReservation to local Zustand store state
+     const currentReservations = get().reservations;
+     if (!currentReservations.some(r => r.id === id)) {
+       set({ reservations: [...currentReservations, newReservation] });
+     }
+
+     // Save Reservation Document
+     await setDoc(doc(db, 'reservations', id), newReservation);
 
     // Save Charges
     for (const templateId of selectedChargeTemplateIds) {
@@ -462,7 +539,7 @@ export const useStore = create<AppState>((set, get) => ({
           category: t.category,
           description: descriptionDesc,
           amount,
-          paymentStatus: 'Pending' as const,
+          paymentStatus: isCheckedOut ? 'Paid' as const : 'Pending' as const,
           date: new Date().toISOString(),
         };
 
@@ -476,6 +553,70 @@ export const useStore = create<AppState>((set, get) => ({
         } else if (t.category === 'External Charge') {
           await setDoc(doc(db, 'externalCharges', chargeId), chargeObj);
         }
+      }
+    }
+
+    // Save Security Deposit Charge Item if we include deposit in total
+    if (data.includeDepositInTotal && depositAmount > 0) {
+      const chargeId = uuidv4();
+      const depositChargeObj = {
+        id: chargeId,
+        reservationId: id,
+        customerId: data.customerId,
+        vehicleId: data.vehicleId,
+        category: 'External Charge' as const,
+        description: 'Security Deposit (Included in Total)',
+        amount: depositAmount,
+        paymentStatus: isCheckedOut ? 'Paid' as const : 'Pending' as const,
+        date: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'chargeItems', chargeId), depositChargeObj);
+      await setDoc(doc(db, 'externalCharges', chargeId), depositChargeObj);
+    }
+
+    // Record Payments if checked out immediately
+    if (isCheckedOut) {
+      // 1. Initial Rental/Charges payment
+      if (computedTotalAmount > 0) {
+        const payId = uuidv4();
+        await setDoc(doc(db, 'payments', payId), {
+          id: payId,
+          reservationId: id,
+          customerId: data.customerId,
+          amount: computedTotalAmount,
+          date,
+          method: paymentMethod,
+          type: 'payment',
+          label: 'Initial Rental Payment'
+        });
+      }
+
+      // 2. Security Deposit Hold payment
+      if (depositAmount > 0) {
+        const payIdDeposit = uuidv4();
+        await setDoc(doc(db, 'payments', payIdDeposit), {
+          id: payIdDeposit,
+          reservationId: id,
+          customerId: data.customerId,
+          amount: depositAmount,
+          date,
+          method: paymentMethod,
+          type: 'deposit',
+          label: 'Security Deposit Held'
+        });
+
+        // 3. Security Deposit hold record
+        const depId = uuidv4();
+        await setDoc(doc(db, 'securityDeposits', depId), {
+          id: depId,
+          reservationId: id,
+          customerId: data.customerId,
+          amount: depositAmount,
+          status: 'On Hold',
+          collectedDate: date,
+          holdUntil,
+          notes: 'Security Deposit Processed'
+        });
       }
     }
 
@@ -649,6 +790,210 @@ export const useStore = create<AppState>((set, get) => ({
     }, 450);
   },
 
+  refundAndCompleteReservation: async (
+    reservationId: string, 
+    refundAmount: number, 
+    refundMethod: string, 
+    deductionReason?: 'Traffic Violation' | 'Late Return' | 'Car Damage' | 'Other', 
+    deductionAmount?: number, 
+    notes?: string
+  ) => {
+    const date = new Date().toISOString();
+    const state = get();
+    const res = state.reservations.find((r) => r.id === reservationId);
+    if (!res) return;
+    const customerId = res.customerId;
+
+    // 1. Update reservation status, refundable status and mark vehicle as returned
+    await updateDoc(doc(db, 'reservations', reservationId), {
+      securityDepositStatus: 'Refunded',
+      securityDepositRefunded: true,
+      securityDepositRefundAmount: refundAmount,
+      securityDepositRefundMethod: refundMethod,
+      securityDepositRefundDate: date,
+      vehicleReturned: true,
+      status: 'Completed',
+    });
+
+    // 2. Save payment refund record
+    const payId = uuidv4();
+    const paymentObj = {
+      id: payId,
+      reservationId,
+      customerId,
+      amount: refundAmount,
+      date,
+      method: refundMethod,
+      type: 'refund' as const,
+      label: 'Security Deposit Refund',
+    };
+    await setDoc(doc(db, 'payments', payId), paymentObj);
+
+    // 3. Save security deposit history record
+    const depId = uuidv4();
+    const depositObj = {
+      id: depId,
+      reservationId,
+      customerId,
+      amount: -refundAmount,
+      status: 'Refunded',
+      collectedDate: date,
+      refundAmount,
+      refundMethod,
+      refundDate: date,
+      notes: notes || 'Security Deposit Refunded',
+    };
+    await setDoc(doc(db, 'securityDeposits', depId), depositObj);
+
+    // 4. Handle deductions
+    if (deductionAmount && deductionAmount > 0 && deductionReason) {
+      // Create charge item for deduction (Paid status, as it's deducted from their preauth)
+      const chargeId = uuidv4();
+      const chargeCategory = deductionReason === 'Car Damage' ? 'Claim' as const : 'Fine' as const;
+      const chargeObj = {
+        id: chargeId,
+        reservationId,
+        customerId,
+        vehicleId: res.vehicleId,
+        category: chargeCategory,
+        description: `${deductionReason} Deduction - ${notes || 'No description provided'}`,
+        amount: deductionAmount,
+        paymentStatus: 'Paid' as const,
+        date,
+      };
+      await setDoc(doc(db, 'chargeItems', chargeId), chargeObj);
+
+      // Save matching fake payment (so totalPaid adds up and leaves no outstanding balance)
+      const payIdDeduction = uuidv4();
+      const paymentObjDeduction = {
+        id: payIdDeduction,
+        reservationId,
+        customerId,
+        amount: deductionAmount,
+        date,
+        method: refundMethod,
+        type: 'payment' as const,
+        label: `${deductionReason} Keep Deduction`,
+      };
+      await setDoc(doc(db, 'payments', payIdDeduction), paymentObjDeduction);
+
+      // Store in subcollection based on category
+      if (chargeCategory === 'Claim') {
+        await setDoc(doc(db, 'claims', chargeId), chargeObj);
+      } else {
+        await setDoc(doc(db, 'fines', chargeId), chargeObj);
+      }
+    }
+
+    setTimeout(async () => {
+      await get().recalculateReservationTotals(reservationId);
+      const updatedRes = get().reservations.find(r => r.id === reservationId);
+      if (updatedRes) {
+        await get().syncVehicleStatus(updatedRes);
+        await get().recalculateCustomerStats(updatedRes.customerId);
+      }
+    }, 450);
+  },
+
+  checkoutReservation: async (
+    reservationId: string, 
+    depositAmount: number, 
+    holdUntil: string, 
+    paymentMethod: string
+  ) => {
+    const date = new Date().toISOString();
+    const state = get();
+    const res = state.reservations.find(r => r.id === reservationId);
+    if (!res) return;
+    const customerId = res.customerId;
+
+    // 1. Calculate totals and outstanding balance before payment
+    const charges = state.chargeItems.filter(c => c.reservationId === reservationId);
+    let totalChargeAmount = res.baseRental;
+    charges.forEach(c => {
+      totalChargeAmount += c.amount;
+    });
+
+    const payments = state.payments.filter(p => p.reservationId === reservationId);
+    const totalPaidBefore = payments
+      .filter(p => p.type === 'payment')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const outstandingBalance = Math.max(0, totalChargeAmount - totalPaidBefore);
+
+    // 2. Mark any pending charge items as Paid
+    for (const c of charges) {
+      if (c.paymentStatus === 'Pending') {
+        await updateDoc(doc(db, 'chargeItems', c.id), { paymentStatus: 'Paid' });
+        try { await updateDoc(doc(db, 'claims', c.id), { paymentStatus: 'Paid' }); } catch (err) {}
+        try { await updateDoc(doc(db, 'fines', c.id), { paymentStatus: 'Paid' }); } catch (err) {}
+        try { await updateDoc(doc(db, 'externalCharges', c.id), { paymentStatus: 'Paid' }); } catch (err) {}
+      }
+    }
+
+    // 3. Save outstanding balance payment if balance exists
+    if (outstandingBalance > 0) {
+      const payId = uuidv4();
+      await setDoc(doc(db, 'payments', payId), {
+        id: payId,
+        reservationId,
+        customerId,
+        amount: outstandingBalance,
+        date,
+        method: paymentMethod,
+        type: 'payment',
+        label: 'Initial Rental Payment'
+      });
+    }
+
+    // 4. Save Security Deposit Hold payment
+    const payIdDeposit = uuidv4();
+    await setDoc(doc(db, 'payments', payIdDeposit), {
+      id: payIdDeposit,
+      reservationId,
+      customerId,
+      amount: depositAmount,
+      date,
+      method: paymentMethod,
+      type: 'deposit',
+      label: 'Security Deposit Held'
+    });
+
+    // 5. Save Security Deposit hold record
+    const depId = uuidv4();
+    await setDoc(doc(db, 'securityDeposits', depId), {
+      id: depId,
+      reservationId,
+      customerId,
+      amount: depositAmount,
+      status: 'On Hold',
+      collectedDate: date,
+      holdUntil,
+      notes: 'Security Deposit Processed'
+    });
+
+    // 6. Update reservation in a single atomic update
+    await updateDoc(doc(db, 'reservations', reservationId), {
+      securityDepositAmount: depositAmount,
+      securityDepositStatus: 'On Hold',
+      securityDepositCollectedDate: date,
+      securityDepositHoldUntil: holdUntil,
+      status: 'Checked Out',
+      totalAmount: totalChargeAmount,
+      balance: 0 // Settled fully
+    });
+
+    // 7. Consolidate and trigger recalculations once
+    setTimeout(async () => {
+      await get().recalculateReservationTotals(reservationId);
+      const updatedRes = get().reservations.find(r => r.id === reservationId);
+      if (updatedRes) {
+        await get().syncVehicleStatus(updatedRes);
+        await get().recalculateCustomerStats(updatedRes.customerId);
+      }
+    }, 450);
+  },
+
   recalculateReservationTotals: async (reservationId) => {
     const state = get();
     const res = state.reservations.find((r) => r.id === reservationId);
@@ -663,7 +1008,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     const totalPaid = payments
-      .filter((p) => p.type === 'payment')
+      .filter((p) => p.type === 'payment' || (res.includeDepositInTotal && p.type === 'deposit'))
       .reduce((sum, p) => sum + p.amount, 0);
 
     const balance = totalAmount - totalPaid;
@@ -682,13 +1027,17 @@ export const useStore = create<AppState>((set, get) => ({
       status: updatedStatus
     });
 
-    setTimeout(async () => {
-      const updatedRes = get().reservations.find((r) => r.id === reservationId);
-      if (updatedRes) {
-        await get().syncVehicleStatus(updatedRes);
-        await get().recalculateCustomerStats(updatedRes.customerId);
-      }
-    }, 400);
+    // Solve race condition: immediately update local Zustand state synchronously
+    const updatedReservations = get().reservations.map((r) => 
+      r.id === reservationId ? { ...r, totalAmount, balance, status: updatedStatus } : r
+    );
+    useStore.setState({ reservations: updatedReservations });
+
+    const updatedRes = updatedReservations.find((r) => r.id === reservationId);
+    if (updatedRes) {
+      await get().syncVehicleStatus(updatedRes);
+      await get().recalculateCustomerStats(updatedRes.customerId);
+    }
   },
 
   recalculateCustomerStats: async (customerId) => {
@@ -720,6 +1069,22 @@ export const useStore = create<AppState>((set, get) => ({
       lifetimeRevenue,
       lastRentalDate,
     });
+
+    // Solve race condition: immediately update local Zustand state synchronously for customer stats
+    const updatedCustomers = get().customers.map((c) => 
+      c.id === customerId ? { 
+        ...c, 
+        totalRentals, 
+        activeReservations, 
+        totalPaid, 
+        outstandingBalance, 
+        totalClaims, 
+        totalFines, 
+        lifetimeRevenue, 
+        lastRentalDate 
+      } : c
+    );
+    useStore.setState({ customers: updatedCustomers });
   },
 
   syncVehicleStatus: async (reservation) => {

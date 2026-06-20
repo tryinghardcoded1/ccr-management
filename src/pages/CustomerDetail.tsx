@@ -639,12 +639,16 @@ export default function CustomerDetail() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <Link 
-                            to={`/reservations/${p.reservationId}`} 
-                            className="text-indigo-600 hover:text-indigo-855 hover:underline font-mono text-xs font-bold"
-                          >
-                            #{p.reservationId.substring(0, 8).toUpperCase()}
-                          </Link>
+                          {p.reservationId ? (
+                            <Link 
+                              to={`/reservations/${p.reservationId}`} 
+                              className="text-indigo-600 hover:text-indigo-855 hover:underline font-mono text-xs font-bold"
+                            >
+                              #{p.reservationId.substring(0, 8).toUpperCase()}
+                            </Link>
+                          ) : (
+                            <span className="text-gray-400 italic">N/A</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-slate-700 text-xs font-semibold">{p.method}</td>
                         <td className="px-6 py-4 text-xs text-slate-500 italic max-w-xs truncate" title={p.notes || p.label}>

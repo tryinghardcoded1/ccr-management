@@ -132,9 +132,7 @@ export default function Layout(): ReactElement {
           }
         } else {
           // Creating fresh booking
-          const newReservationId = "res-" + Math.floor(Math.random() * 100000);
-          
-          store.createReservation({
+          const newReservationId = await store.createReservation({
             customerId: custId,
             vehicleId,
             pickupDate,
@@ -148,7 +146,7 @@ export default function Layout(): ReactElement {
           
           // Supplement transaction history with immediate rental payment
           const rentalCost = (carType.toLowerCase() === "suv" ? 90 : 50) * durationDays;
-          store.addPayment({
+          await store.addPayment({
             reservationId: newReservationId,
             customerId: custId,
             amount: rentalCost,

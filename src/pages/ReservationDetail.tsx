@@ -1,15 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
 import { ReservationStatus, ChargeCategory, PaymentStatus, Vehicle as StoreVehicle } from '../types';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { 
   ArrowLeft, Car, User, Calendar, DollarSign, Clock, CreditCard, 
-  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText, Printer
+  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText, Printer, Lock
 } from 'lucide-react';
 
 export default function ReservationDetail() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const store = useStore();
   
   const reservation = store.reservations.find(r => r.id === id);
@@ -20,8 +21,16 @@ export default function ReservationDetail() {
   const activeContractObj = store.contracts.find(c => c.status === 'Active');
 
   // Active floating dialog modal state
-  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement'>(null);
+  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement' | 'initial_checkout'>(null);
   const [hasSeenAgreement, setHasSeenAgreement] = useState(false);
+
+  React.useEffect(() => {
+    if (location.state?.openCheckout && reservation && reservation.status === 'Pending') {
+      setActiveModal('initial_checkout');
+      // Update browser history state to avoid reopening on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, reservation]);
 
   // Modal Form States
   const [paymentForm, setPaymentForm] = useState({ amount: 0, method: 'Credit Card', label: 'Rental Payment' });
@@ -31,7 +40,10 @@ export default function ReservationDetail() {
   const [switchForm, setSwitchForm] = useState({ newVehicleId: '', upgradeFee: 0, notes: '' });
   const [depositForm, setDepositForm] = useState({ amount: 500, holdUntil: '', method: 'Credit Card' });
   const [refundForm, setRefundForm] = useState({ amount: 0, method: 'Credit Card' });
-  const [returnForm, setReturnForm] = useState({ refundType: 'Full' as 'Full' | 'Partial', deductionAmount: 0, deductionReason: '' });
+  const [refundType, setRefundType] = useState<'Full' | 'Partial'>('Full');
+  const [deductionReason, setDeductionReason] = useState<'Traffic Violation' | 'Late Return' | 'Car Damage' | 'Other'>('Late Return');
+  const [deductionAmount, setDeductionAmount] = useState<number>(0);
+  const [refundNotes, setRefundNotes] = useState<string>('');
 
   if (!reservation || !customer || !vehicle) {
     return (
@@ -87,46 +99,28 @@ export default function ReservationDetail() {
     store.updateReservationStatus(reservation.id, newStatus);
   };
 
-  const handleProcessReturn = (e?: React.FormEvent) => {
+  const handleProcessReturn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
     // Process deposit deduction & refund if deposit is held
     if (reservation.securityDepositStatus === 'On Hold') {
-       let refundAmt = reservation.securityDepositAmount;
-       if (returnForm.refundType === 'Partial') {
-         if (returnForm.deductionAmount > 0) {
-            // Create a fine/charge for the deduction
-            store.addChargeItem({
-              reservationId: reservation.id,
-              customerId: reservation.customerId,
-              vehicleId: reservation.vehicleId,
-              description: returnForm.deductionReason || 'Deposit Deduction',
-              amount: returnForm.deductionAmount,
-              category: 'Fine',
-              paymentStatus: 'Paid',
-              date: new Date().toISOString()
-            });
-            // Automatically add payment to offset the charge (since paid via deposit)
-            store.addPayment({
-              reservationId: reservation.id,
-              customerId: reservation.customerId,
-              amount: returnForm.deductionAmount,
-              method: 'Deposit Deduction',
-              type: 'payment',
-              label: 'Auto-paid via Security Deposit deduction',
-              date: new Date().toISOString()
-            });
-            refundAmt = reservation.securityDepositAmount - returnForm.deductionAmount;
-         }
-       }
-       store.refundSecurityDeposit(reservation.id, refundAmt, 'Original Method (Refund)');
+       const finalRefundAmount = refundType === 'Full' 
+         ? reservation.securityDepositAmount 
+         : Math.max(0, reservation.securityDepositAmount - deductionAmount);
+
+       await store.refundAndCompleteReservation(
+         reservation.id,
+         finalRefundAmount,
+         'Original Credit Card',
+         refundType === 'Partial' ? deductionReason : undefined,
+         refundType === 'Partial' ? deductionAmount : 0,
+         refundNotes || 'Return Vehicle & Finalize Deposit'
+       );
+    } else {
+       // Just mark vehicle returned and complete reservation
+       await store.markVehicleReturned(reservation.id);
+       await store.updateReservationStatus(reservation.id, 'Completed');
     }
-
-    // Mark vehicle returned
-    store.markVehicleReturned(reservation.id);
-
-    // Complete reservation
-    store.updateReservationStatus(reservation.id, 'Completed');
     
     setActiveModal(null);
   };
@@ -137,6 +131,22 @@ export default function ReservationDetail() {
       return;
     }
     store.updateReservationStatus(reservation.id, 'Completed');
+  };
+
+  const handleInitialCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      await store.checkoutReservation(
+        reservation.id,
+        depositForm.amount || 500,
+        format(parseISO(reservation.returnDate), 'yyyy-MM-dd'),
+        paymentForm.method
+      );
+      setActiveModal(null);
+    } catch (err: any) {
+      alert("Error processing checkout: " + err.message);
+    }
   };
 
   const handleAddPayment = (e: React.FormEvent) => {
@@ -288,9 +298,20 @@ export default function ReservationDetail() {
     setActiveModal(null);
   };
 
-  const handleRefundDepositSubmit = (e: React.FormEvent) => {
+  const handleRefundDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    store.refundSecurityDeposit(reservation.id, refundForm.amount, refundForm.method);
+    const finalRefundAmount = refundType === 'Full' 
+      ? reservation.securityDepositAmount 
+      : Math.max(0, reservation.securityDepositAmount - deductionAmount);
+
+    await store.refundAndCompleteReservation(
+      reservation.id,
+      finalRefundAmount,
+      refundForm.method,
+      refundType === 'Partial' ? deductionReason : undefined,
+      refundType === 'Partial' ? deductionAmount : 0,
+      refundNotes
+    );
     setActiveModal(null);
   };
 
@@ -340,7 +361,16 @@ export default function ReservationDetail() {
         </div>
 
         {/* Sync reservation status picker */}
-        <div className="flex items-center gap-3 self-start sm:self-center">
+        <div className="flex flex-wrap items-center gap-3 self-start sm:self-center">
+          {reservation.status === 'Pending' && (
+            <button
+              onClick={() => setActiveModal('initial_checkout')}
+              className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold shadow-md transition flex items-center gap-2"
+            >
+              Complete Checkout & Payment <CreditCard className="w-4 h-4" />
+            </button>
+          )}
+
           <Link 
             to={`/reservations/new?customerId=${customer.id}`} 
             className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-90 text-white rounded-lg text-sm font-semibold shadow-sm transition mr-4"
@@ -1153,26 +1183,115 @@ export default function ReservationDetail() {
 
               {/* CURRENT DEPOSIT IS ON HOLD -> PROCESS REFUND */}
               {reservation.securityDepositStatus === 'On Hold' && (
-                <form onSubmit={handleRefundDepositSubmit} className="space-y-4 text-sm">
-                  <div className="bg-yellow-50 text-yellow-800 p-3 rounded border border-yellow-200">
-                    <span className="font-bold block text-xs">Authorize Refund Release</span>
-                    Currently On Hold: ${reservation.securityDepositAmount.toFixed(2)}
+                <form onSubmit={handleRefundDepositSubmit} className="space-y-4 text-xs">
+                  <div className="bg-amber-50 text-amber-800 p-3 rounded-lg border border-amber-200">
+                    <span className="font-bold block text-[11px] uppercase tracking-wider mb-0.5">Deposit on Hold</span>
+                    Currently Holding: <strong className="font-bold">${reservation.securityDepositAmount.toFixed(2)}</strong>
                   </div>
+
+                  {/* Refund Type Selection */}
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Refund Release Amount ($)</label>
-                    <input 
-                      type="number" 
-                      required
-                      max={reservation.securityDepositAmount}
-                      className="w-full border rounded-lg p-2 font-semibold text-base"
-                      value={refundForm.amount}
-                      onChange={e => setRefundForm({ ...refundForm, amount: parseFloat(e.target.value) })}
-                    />
+                    <label className="block text-[11px] font-bold uppercase text-gray-500 mb-1.5">Refund Option</label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRefundType('Full');
+                          setDeductionAmount(0);
+                        }}
+                        className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
+                          refundType === 'Full'
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold shadow-xs'
+                            : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        Full Refund
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRefundType('Partial');
+                          setDeductionAmount(Math.min(reservation.securityDepositAmount, 100));
+                        }}
+                        className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
+                          refundType === 'Partial'
+                            ? 'bg-amber-50 border-amber-500 text-amber-700 font-bold shadow-xs'
+                            : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        Partial Refund
+                      </button>
+                    </div>
                   </div>
+
+                  {/* If Partial: show reason and refund deductions */}
+                  {refundType === 'Partial' && (
+                    <div className="space-y-3 bg-gray-50 p-3 rounded-lg border border-gray-150 animate-fade-in">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Reason for Deduction / Charge Fee</label>
+                        <select 
+                          className="w-full border rounded-lg p-1.5 bg-white text-xs"
+                          value={deductionReason}
+                          onChange={e => setDeductionReason(e.target.value as any)}
+                        >
+                          <option value="Late Return">Late Return</option>
+                          <option value="Car Damage">Car Damage</option>
+                          <option value="Traffic Violation">Traffic Violation</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Deduction Amount ($)</label>
+                        <input 
+                          type="number" 
+                          required
+                          min="0"
+                          max={reservation.securityDepositAmount}
+                          step="0.01"
+                          className="w-full border rounded-lg p-1.5 font-semibold text-xs animate-pulse-once"
+                          value={deductionAmount}
+                          onChange={e => setDeductionAmount(Math.min(reservation.securityDepositAmount, parseFloat(e.target.value) || 0))}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">Deduction Notes / Fee Explanation</label>
+                        <textarea 
+                          rows={2}
+                          required={refundType === 'Partial'}
+                          placeholder="Provide details about why the full deposit is not returned..."
+                          className="w-full border rounded-lg p-1.5 text-xs outline-none focus:border-indigo-500 font-medium"
+                          value={refundNotes}
+                          onChange={e => setRefundNotes(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary of what will be refunded/kept */}
+                  <div className="bg-gray-50 p-2.5 rounded-lg text-xs space-y-1.5 border border-dashed border-gray-200">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500 font-medium">Original Preauthorized Deposit:</span>
+                      <span className="font-semibold text-gray-800">${reservation.securityDepositAmount.toFixed(2)}</span>
+                    </div>
+                    {refundType === 'Partial' && (
+                      <div className="flex justify-between text-rose-600 font-medium">
+                        <span>Deducted Amount (To Be Kept):</span>
+                        <span>-${deductionAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-gray-100 pt-1.5 font-bold text-emerald-700">
+                      <span>Total Amount Refunded:</span>
+                      <span>${(refundType === 'Full' ? reservation.securityDepositAmount : Math.max(0, reservation.securityDepositAmount - deductionAmount)).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* Refund Release Instrument */}
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Refund Release Instrument</label>
+                    <label className="block text-[11px] font-bold uppercase text-gray-500 mb-1">Refund Release Method</label>
                     <select 
-                      className="w-full border rounded-lg p-2 bg-white"
+                      className="w-full border p-2 bg-white text-xs rounded-lg font-medium"
                       value={refundForm.method}
                       onChange={e => setRefundForm({ ...refundForm, method: e.target.value })}
                     >
@@ -1181,11 +1300,13 @@ export default function ReservationDetail() {
                       <option value="Wire Transfer">Wire Transfer</option>
                     </select>
                   </div>
+
+                  {/* Button Submission */}
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-xs shadow-sm">
-                      Authorize Refund
+                    <button type="submit" className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-md">
+                      Refund and Complete
                     </button>
-                    <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-12 border border-gray-250 text-gray-700 rounded-lg hover:bg-gray-50 text-xs py-2">
+                    <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-semibold">
                       Cancel
                     </button>
                   </div>
@@ -1235,47 +1356,80 @@ export default function ReservationDetail() {
 
               {reservation.securityDepositStatus === 'On Hold' && (
                 <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <h5 className="font-bold text-slate-900 flex items-center gap-2">
+                  <h5 className="font-bold text-slate-900 flex items-center gap-2 text-xs uppercase tracking-wider">
                     <ShieldAlert className="w-4 h-4 text-orange-500" /> Security Deposit Refund
                   </h5>
                   <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" checked={returnForm.refundType === 'Full'} onChange={() => setReturnForm({...returnForm, refundType: 'Full'})} className="text-indigo-600 focus:ring-indigo-500" />
-                      <span className="text-sm font-bold text-slate-700">Full Refund (${reservation.securityDepositAmount.toFixed(2)})</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" checked={returnForm.refundType === 'Partial'} onChange={() => setReturnForm({...returnForm, refundType: 'Partial'})} className="text-indigo-600 focus:ring-indigo-500" />
-                      <span className="text-sm font-bold text-slate-700">Partial/Deduct</span>
-                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRefundType('Full');
+                        setDeductionAmount(0);
+                      }}
+                      className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
+                        refundType === 'Full'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold shadow-xs'
+                          : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      Full Refund
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRefundType('Partial');
+                        setDeductionAmount(Math.min(reservation.securityDepositAmount, 100));
+                      }}
+                      className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
+                        refundType === 'Partial'
+                          ? 'bg-amber-50 border-amber-500 text-amber-700 font-bold shadow-xs'
+                          : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      Partial/Deduct Fee
+                    </button>
                   </div>
 
-                  {returnForm.refundType === 'Partial' && (
-                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-4">
+                  {refundType === 'Partial' && (
+                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-4 text-xs">
                       <div>
-                        <label className="block text-xs font-bold uppercase text-orange-900 mb-1.5">Amount to Deduct ($)</label>
+                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Reason for Deduction</label>
+                        <select 
+                          className="w-full border rounded-lg p-1.5 bg-white text-xs"
+                          value={deductionReason}
+                          onChange={e => setDeductionReason(e.target.value as any)}
+                        >
+                          <option value="Late Return">Late Return</option>
+                          <option value="Car Damage">Car Damage</option>
+                          <option value="Traffic Violation">Traffic Violation</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Amount to Deduct ($)</label>
                         <input 
                           type="number" 
                           step="0.01" 
                           max={reservation.securityDepositAmount}
                           required
-                          value={returnForm.deductionAmount || ''}
-                          onChange={e => setReturnForm({...returnForm, deductionAmount: parseFloat(e.target.value)})}
-                          className="w-full border-orange-200 rounded-lg p-2 font-medium focus:ring-2 focus:ring-orange-500 outline-none"
+                          value={deductionAmount}
+                          onChange={e => setDeductionAmount(Math.min(reservation.securityDepositAmount, parseFloat(e.target.value) || 0))}
+                          className="w-full border border-orange-200 rounded-lg p-1.5 font-semibold text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold uppercase text-orange-900 mb-1.5">Reason / Fine Label</label>
-                        <input 
-                          type="text" 
+                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Deduction Notes / Details</label>
+                        <textarea 
+                          rows={2}
                           required
-                          value={returnForm.deductionReason}
-                          onChange={e => setReturnForm({...returnForm, deductionReason: e.target.value})}
-                          placeholder="e.g. Damage to bumper, refueling fee"
-                          className="w-full border-orange-200 rounded-lg p-2 font-medium focus:ring-2 focus:ring-orange-500 outline-none"
+                          placeholder="Why is this fee being deducted?"
+                          value={refundNotes}
+                          onChange={e => setRefundNotes(e.target.value)}
+                          className="w-full border border-orange-200 rounded-lg p-1.5 text-xs font-medium"
                         />
                       </div>
                       <div className="text-xs font-bold text-orange-850 pt-2 border-t border-orange-200/50">
-                        Refund Amount: ${(reservation.securityDepositAmount - returnForm.deductionAmount || 0).toFixed(2)}
+                        Refund Amount: ${(reservation.securityDepositAmount - deductionAmount).toFixed(2)}
                       </div>
                     </div>
                   )}
@@ -1295,7 +1449,68 @@ export default function ReservationDetail() {
         </div>
       )}
 
-      {/* 8. Rental Agreement View Modal */}
+      {/* 8. Initial Checkout Modal */}
+      {activeModal === 'initial_checkout' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded shadow-xl max-w-xl w-full border border-zinc-200 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 bg-zinc-800 border-b border-zinc-700 flex justify-between items-center text-white">
+               <h3 className="font-bold tracking-wide uppercase text-sm flex items-center gap-2"><CreditCard className="w-5 h-5"/> Checkout & Payment</h3>
+               <button onClick={() => setActiveModal(null)} className="text-zinc-400 hover:text-white">&times;</button>
+            </div>
+            
+            <form onSubmit={handleInitialCheckout} className="p-6 text-sm">
+                <div className="mb-6 bg-blue-50 border border-blue-200 p-5 rounded-lg text-center">
+                   <div className="text-blue-900 font-bold uppercase tracking-wide text-xs mb-1">Total Outstanding Balance</div>
+                   <div className="text-4xl font-extrabold text-blue-900">${reservation.balance.toFixed(2)}</div>
+                   {reservation.balance === 0 && <div className="mt-2 text-sm text-green-700 font-bold">Nothing due to collected upfront.</div>}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                   <div>
+                     <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Payment Method</label>
+                     <select 
+                        required 
+                        className="w-full border-2 border-zinc-200 rounded p-2 text-sm bg-white" 
+                        value={paymentForm.method} 
+                        onChange={e => setPaymentForm({...paymentForm, method: e.target.value})}
+                     >
+                       <option value="Credit Card">Credit Card</option>
+                       <option value="Cash">Cash</option>
+                       <option value="Wire Transfer">Wire Transfer</option>
+                     </select>
+                   </div>
+                   <div>
+                     <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Security Deposit Hold</label>
+                     <div className="relative">
+                       <span className="absolute left-3 top-2.5 text-zinc-500 font-bold">$</span>
+                       <input 
+                          type="number" step="0.01" required min="0"
+                          className="w-full border-2 border-zinc-200 rounded p-2 pl-7 text-sm font-bold bg-white" 
+                          value={depositForm.amount} 
+                          onChange={e => setDepositForm({...depositForm, amount: parseFloat(e.target.value)})}
+                       />
+                     </div>
+                   </div>
+                </div>
+
+                <div className="bg-zinc-50 rounded p-4 border border-zinc-200 mb-6 text-xs text-zinc-600 space-y-1">
+                   <p>&bull; This will process a charge of <strong>${reservation.balance.toFixed(2)}</strong> via {paymentForm.method}.</p>
+                   {depositForm.amount > 0 && <p>&bull; A separate authorization hold of <strong>${depositForm.amount.toFixed(2)}</strong> will be applied.</p>}
+                   <p>&bull; The reservation status will be advanced to <strong>"Checked Out"</strong>.</p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-zinc-100">
+                    <button type="button" onClick={() => setActiveModal(null)} className="px-5 py-2 font-semibold text-zinc-500 hover:text-zinc-800 transition rounded hover:bg-zinc-100">Cancel</button>
+                    <button type="submit" disabled={reservation.balance < 0} className="px-6 py-2 bg-green-600 text-white font-bold rounded shadow-sm hover:bg-green-700 transition flex items-center gap-2">
+                       Complete Payment <Check className="w-4 h-4"/>
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. Rental Agreement View Modal */}
       {activeModal === 'agreement' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-2 sm:p-4 no-print-backdrop">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-gray-150 overflow-hidden flex flex-col max-h-[92vh]" id="printable-agreement">

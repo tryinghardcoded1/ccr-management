@@ -142,9 +142,13 @@ export default function Payments() {
                       </div>
                     </td>
                     <td className="px-6 py-4 font-mono text-xs">
-                      <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                        #{p.reservationId.substring(0, 8).toUpperCase()}
-                      </span>
+                      {p.reservationId ? (
+                        <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          #{p.reservationId.substring(0, 8).toUpperCase()}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 italic">N/A</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-gray-500 text-xs font-mono">
                       {format(new Date(p.date), 'MMM d, yyyy HH:mm')}
