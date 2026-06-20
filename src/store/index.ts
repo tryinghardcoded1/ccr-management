@@ -25,6 +25,7 @@ import {
   ChargeCategory,
   SystemUser,
   RentalContract,
+  GeneratedContract,
 } from '../types';
 
 interface AppState {
@@ -37,6 +38,7 @@ interface AppState {
   chargeTemplates: ChargeTemplate[];
   maintenances: Maintenance[];
   contracts: RentalContract[];
+  generatedContracts: GeneratedContract[];
 
   archivedCustomers: Customer[];
   archivedVehicles: Vehicle[];
@@ -98,6 +100,7 @@ interface AppState {
     holdUntil: string, 
     paymentMethod: string
   ) => Promise<void>;
+  addGeneratedContract: (contract: Omit<GeneratedContract, 'contractId' | 'createdAt'>) => Promise<string>;
 
   recalculateCustomerStats: (customerId: string) => Promise<void>;
   recalculateReservationTotals: (reservationId: string) => Promise<void>;
@@ -305,6 +308,7 @@ export const useStore = create<AppState>((set, get) => ({
   chargeTemplates: [],
   maintenances: [],
   contracts: [],
+  generatedContracts: [],
 
   archivedCustomers: [],
   archivedVehicles: [],
@@ -442,7 +446,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Check overlap
     const overlap = state.reservations.some(r => {
       if (r.vehicleId !== data.vehicleId) return false;
-      if (r.status === 'Cancelled' || r.status === 'Completed') return false;
+      if (r.status === 'Cancelled' || r.status === 'Completed' || r.status === 'Closed') return false;
 
       try {
         const buildTime = (d: string, t?: string) => {
@@ -651,6 +655,17 @@ export const useStore = create<AppState>((set, get) => ({
     }, 400);
   },
 
+  addGeneratedContract: async (contract) => {
+    const id = uuidv4();
+    const newContract = {
+      ...contract,
+      contractId: id,
+      createdAt: new Date().toISOString(),
+    };
+    await setDoc(doc(db, 'generatedContracts', id), newContract);
+    return id;
+  },
+
   markVehicleReturned: async (id) => {
     await updateDoc(doc(db, 'reservations', id), { vehicleReturned: true, status: 'Checked In' });
     setTimeout(async () => {
@@ -755,6 +770,7 @@ export const useStore = create<AppState>((set, get) => ({
       securityDepositRefundAmount: amount,
       securityDepositRefundMethod: method,
       securityDepositRefundDate: date,
+      status: 'Closed',
     });
 
     const payId = uuidv4();
@@ -812,7 +828,7 @@ export const useStore = create<AppState>((set, get) => ({
       securityDepositRefundMethod: refundMethod,
       securityDepositRefundDate: date,
       vehicleReturned: true,
-      status: 'Completed',
+      status: 'Closed',
     });
 
     // 2. Save payment refund record
@@ -1044,7 +1060,7 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     
     const customerReservations = state.reservations.filter((r) => r.customerId === customerId);
-    const activeReservations = customerReservations.filter((r) => !['Completed', 'Cancelled'].includes(r.status)).length;
+    const activeReservations = customerReservations.filter((r) => !['Completed', 'Cancelled', 'Closed'].includes(r.status)).length;
     const totalRentals = customerReservations.length;
     const lastRentalInfo = [...customerReservations].sort((a,b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime())[0];
     const lastRentalDate = lastRentalInfo?.pickupDate || '';
@@ -1093,7 +1109,7 @@ export const useStore = create<AppState>((set, get) => ({
     else if (reservation.status === 'Checked In') {
         newStatus = 'Available';
     }
-    else if (reservation.status === 'Completed' || reservation.status === 'Cancelled') {
+    else if (reservation.status === 'Completed' || reservation.status === 'Cancelled' || reservation.status === 'Closed') {
         newStatus = 'Available';
     }
 
@@ -1240,7 +1256,13 @@ export function setupFirebaseSync() {
     useStore.setState({ archivedChargeTemplates: list });
   });
 
-  // 13. Security Deposits
+  // 13. Generated Contracts
+  onSnapshot(collection(db, 'generatedContracts'), (snap) => {
+    const list = snap.docs.map(d => ({ ...d.data() } as GeneratedContract));
+    useStore.setState({ generatedContracts: list });
+  });
+
+  // 14. Security Deposits
   onSnapshot(collection(db, 'securityDeposits'), (snap) => {
     const list = snap.docs.map(d => d.data());
     useStore.setState({ securityDeposits: list });

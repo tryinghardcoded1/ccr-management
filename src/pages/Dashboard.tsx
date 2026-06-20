@@ -31,7 +31,7 @@ export default function Dashboard() {
 
   const outstandingBalance = store.reservations.reduce((sum, r) => sum + Math.max(0, r.balance), 0);
 
-  const activeReservations = store.reservations.filter(r => !['Completed', 'Cancelled'].includes(r.status));
+  const activeReservations = store.reservations.filter(r => !['Completed', 'Cancelled', 'Closed'].includes(r.status));
   const activeCount = activeReservations.length;
 
   const availableVehicles = store.vehicles.filter(v => v.status === 'Available').length;

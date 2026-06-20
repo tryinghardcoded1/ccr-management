@@ -78,9 +78,6 @@ export default function ReservationDetail() {
   if (reservation.status !== 'Checked In') {
     completionBlockers.push("Reservation status must be 'Checked In' before completion");
   }
-  if (reservation.securityDepositStatus === 'On Hold') {
-    completionBlockers.push("Security deposit is still On Hold. It must be Refunded or Completed");
-  }
   if (reservation.balance > 0) {
     completionBlockers.push(`There is an outstanding balance of $${reservation.balance.toFixed(2)}`);
   }
@@ -102,25 +99,9 @@ export default function ReservationDetail() {
   const handleProcessReturn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    // Process deposit deduction & refund if deposit is held
-    if (reservation.securityDepositStatus === 'On Hold') {
-       const finalRefundAmount = refundType === 'Full' 
-         ? reservation.securityDepositAmount 
-         : Math.max(0, reservation.securityDepositAmount - deductionAmount);
-
-       await store.refundAndCompleteReservation(
-         reservation.id,
-         finalRefundAmount,
-         'Original Credit Card',
-         refundType === 'Partial' ? deductionReason : undefined,
-         refundType === 'Partial' ? deductionAmount : 0,
-         refundNotes || 'Return Vehicle & Finalize Deposit'
-       );
-    } else {
-       // Just mark vehicle returned and complete reservation
-       await store.markVehicleReturned(reservation.id);
-       await store.updateReservationStatus(reservation.id, 'Completed');
-    }
+    // Just mark vehicle returned and complete reservation
+    await store.markVehicleReturned(reservation.id);
+    await store.updateReservationStatus(reservation.id, 'Completed');
     
     setActiveModal(null);
   };
@@ -140,7 +121,7 @@ export default function ReservationDetail() {
       await store.checkoutReservation(
         reservation.id,
         depositForm.amount || 500,
-        format(parseISO(reservation.returnDate), 'yyyy-MM-dd'),
+        depositForm.holdUntil || format(parseISO(reservation.returnDate), 'yyyy-MM-dd'),
         paymentForm.method
       );
       setActiveModal(null);
@@ -330,11 +311,10 @@ export default function ReservationDetail() {
     } else if (!isPaymentPending && isDepositPending && !activeModal) {
       setDepositForm(prev => ({ ...prev, amount: reservation.securityDepositAmount }));
       setActiveModal('deposit');
-    } else if (!isPaymentPending && !isDepositPending && isAgreementPending && !activeModal) {
+    } else if (!isPaymentPending && !isDepositPending && !activeModal && !hasSeenAgreement && !store.generatedContracts.some(c => c.reservationId === reservation.id)) {
       setActiveModal('agreement');
-      setHasSeenAgreement(true);
     }
-  }, [isPaymentPending, isDepositPending, isAgreementPending, activeModal, reservation.balance, reservation.securityDepositAmount]);
+  }, [isPaymentPending, isDepositPending, activeModal, reservation.balance, reservation.securityDepositAmount, store.generatedContracts, reservation.id, hasSeenAgreement]);
 
   return (
     <div className="space-y-6">
@@ -350,6 +330,7 @@ export default function ReservationDetail() {
             </h2>
             <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border
               ${reservation.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                reservation.status === 'Closed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
                 reservation.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 
                 reservation.status === 'Pending' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
                 'bg-blue-50 text-blue-700 border-blue-200'}`}
@@ -364,7 +345,14 @@ export default function ReservationDetail() {
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-center">
           {reservation.status === 'Pending' && (
             <button
-              onClick={() => setActiveModal('initial_checkout')}
+              onClick={() => {
+                setDepositForm({
+                  amount: 500,
+                  holdUntil: format(parseISO(reservation.returnDate), 'yyyy-MM-dd'),
+                  method: 'Credit Card'
+                });
+                setActiveModal('initial_checkout');
+              }}
               className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold shadow-md transition flex items-center gap-2"
             >
               Complete Checkout & Payment <CreditCard className="w-4 h-4" />
@@ -388,6 +376,7 @@ export default function ReservationDetail() {
             <option value="Checked Out">Checked Out</option>
             <option value="Checked In">Checked In</option>
             <option value="Completed">Completed</option>
+            <option value="Closed">Closed</option>
             <option value="Cancelled">Cancelled</option>
           </select>
         </div>
@@ -1354,87 +1343,7 @@ export default function ReservationDetail() {
                 <p className="text-sm text-green-900 font-medium">Verify the vehicle has been physically returned and keys collected.</p>
               </div>
 
-              {reservation.securityDepositStatus === 'On Hold' && (
-                <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <h5 className="font-bold text-slate-900 flex items-center gap-2 text-xs uppercase tracking-wider">
-                    <ShieldAlert className="w-4 h-4 text-orange-500" /> Security Deposit Refund
-                  </h5>
-                  <div className="flex gap-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRefundType('Full');
-                        setDeductionAmount(0);
-                      }}
-                      className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
-                        refundType === 'Full'
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold shadow-xs'
-                          : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      Full Refund
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRefundType('Partial');
-                        setDeductionAmount(Math.min(reservation.securityDepositAmount, 100));
-                      }}
-                      className={`flex-1 py-2 font-bold rounded-lg border text-xs transition-all ${
-                        refundType === 'Partial'
-                          ? 'bg-amber-50 border-amber-500 text-amber-700 font-bold shadow-xs'
-                          : 'bg-white border-gray-250 text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      Partial/Deduct Fee
-                    </button>
-                  </div>
-
-                  {refundType === 'Partial' && (
-                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-4 text-xs">
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Reason for Deduction</label>
-                        <select 
-                          className="w-full border rounded-lg p-1.5 bg-white text-xs"
-                          value={deductionReason}
-                          onChange={e => setDeductionReason(e.target.value as any)}
-                        >
-                          <option value="Late Return">Late Return</option>
-                          <option value="Car Damage">Car Damage</option>
-                          <option value="Traffic Violation">Traffic Violation</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Amount to Deduct ($)</label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          max={reservation.securityDepositAmount}
-                          required
-                          value={deductionAmount}
-                          onChange={e => setDeductionAmount(Math.min(reservation.securityDepositAmount, parseFloat(e.target.value) || 0))}
-                          className="w-full border border-orange-200 rounded-lg p-1.5 font-semibold text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-orange-900 mb-1">Deduction Notes / Details</label>
-                        <textarea 
-                          rows={2}
-                          required
-                          placeholder="Why is this fee being deducted?"
-                          value={refundNotes}
-                          onChange={e => setRefundNotes(e.target.value)}
-                          className="w-full border border-orange-200 rounded-lg p-1.5 text-xs font-medium"
-                        />
-                      </div>
-                      <div className="text-xs font-bold text-orange-850 pt-2 border-t border-orange-200/50">
-                        Refund Amount: ${(reservation.securityDepositAmount - deductionAmount).toFixed(2)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Security deposit refund options removed from return modal because it can be refunded 1-2 weeks later */}
 
               <div className="pt-2 flex gap-3">
                 <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-extrabold shadow-lg shadow-indigo-200 transition">
@@ -1465,7 +1374,7 @@ export default function ReservationDetail() {
                    {reservation.balance === 0 && <div className="mt-2 text-sm text-green-700 font-bold">Nothing due to collected upfront.</div>}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
                    <div>
                      <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Payment Method</label>
                      <select 
@@ -1480,16 +1389,26 @@ export default function ReservationDetail() {
                      </select>
                    </div>
                    <div>
-                     <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Security Deposit Hold</label>
+                     <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Deposit Charge ($)</label>
                      <div className="relative">
                        <span className="absolute left-3 top-2.5 text-zinc-500 font-bold">$</span>
                        <input 
                           type="number" step="0.01" required min="0"
                           className="w-full border-2 border-zinc-200 rounded p-2 pl-7 text-sm font-bold bg-white" 
                           value={depositForm.amount} 
-                          onChange={e => setDepositForm({...depositForm, amount: parseFloat(e.target.value)})}
+                          onChange={e => setDepositForm({...depositForm, amount: parseFloat(e.target.value) || 0})}
                        />
                      </div>
+                   </div>
+                   <div>
+                     <label className="block text-xs font-bold text-zinc-600 uppercase tracking-wide mb-1 flex items-center gap-1">Hold Until Date</label>
+                     <input 
+                        type="date" 
+                        required 
+                        className="w-full border-2 border-zinc-200 rounded p-1.5 text-sm font-bold bg-white outline-none" 
+                        value={depositForm.holdUntil || format(parseISO(reservation.returnDate), 'yyyy-MM-dd')}
+                        onChange={e => setDepositForm({...depositForm, holdUntil: e.target.value})}
+                     />
                    </div>
                 </div>
 
@@ -1520,7 +1439,7 @@ export default function ReservationDetail() {
               <h4 className="font-bold text-slate-900 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-indigo-600" /> Print & Digital Rental Agreement
               </h4>
-              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">×</button>
+              <button onClick={() => { setActiveModal(null); setHasSeenAgreement(true); }} className="text-gray-400 hover:text-gray-600 font-bold text-xl">×</button>
             </div>
             
             <div className="p-8 overflow-y-auto font-sans text-sm text-slate-800 space-y-6">
@@ -1673,7 +1592,7 @@ export default function ReservationDetail() {
                  <Printer className="w-4 h-4" /> Print Contract / PDF
                </button>
                <button 
-                 onClick={() => setActiveModal(null)} 
+                 onClick={() => { setActiveModal(null); setHasSeenAgreement(true); }} 
                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 cursor-pointer"
                >
                  Close Agreement

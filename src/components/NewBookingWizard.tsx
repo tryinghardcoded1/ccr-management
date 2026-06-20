@@ -90,7 +90,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   const isVehicleAvailable = (vId: string) => {
     return !store.reservations.some(r => {
       if (r.vehicleId !== vId) return false;
-      if (r.status === 'Cancelled' || r.status === 'Completed') return false;
+      if (r.status === 'Cancelled' || r.status === 'Completed' || r.status === 'Closed') return false;
       
       try {
         const buildTime = (d: string, t?: string) => {
@@ -180,7 +180,15 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   };
 
   const handleConfirm = async () => {
+    console.log("handleConfirm customerId:", customerId);
     if (isSubmitting) return;
+    
+    // Verify customer exists
+    if (!store.customers.find(c => c.id === customerId)) {
+        setError('Error: Customer not found. Please select a customer first.');
+        return;
+    }
+
     setIsSubmitting(true);
     setError('');
     try {
@@ -304,7 +312,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                   <h3 className="font-semibold text-zinc-800 text-base mb-3 border-b pb-2 pt-4">Vehicle Assignment</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {store.vehicles.map(v => {
-                      const isAvailable = isVehicleAvailable(v.id) && v.status === 'Available';
+                      const isAvailable = isVehicleAvailable(v.id) && v.status !== 'Maintenance' && v.status !== 'Repair';
                       return (
                         <div 
                           key={v.id} 
@@ -321,7 +329,11 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                               <div className="font-bold text-zinc-900 text-sm">{v.make} {v.model} <span className="text-zinc-500 font-normal">({v.year})</span></div>
                               <div className="text-[11px] text-zinc-500 font-mono mt-0.5">{v.licensePlate} • {v.category.toUpperCase()}</div>
                               <div className="text-zinc-500 text-[11px] mt-1 line-clamp-1"><Flag className="w-3 h-3 inline text-green-600 mb-0.5"/> {v.status}</div>
-                              {!isAvailable && <div className="text-[10px] text-red-500 mt-1 font-semibold uppercase tracking-wider">Reserved for dates</div>}
+                              {!isAvailable && (
+                                <div className="text-[10px] text-red-500 mt-1 font-semibold uppercase tracking-wider">
+                                  {v.status === 'Maintenance' || v.status === 'Repair' ? 'Under Maintenance/Repair' : 'Reserved for dates'}
+                                </div>
+                              )}
                             </div>
                             <div className="text-right">
                               <div className="font-bold text-blue-700">${v.dailyRate}</div>

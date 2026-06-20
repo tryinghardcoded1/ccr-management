@@ -22,9 +22,15 @@ export default function CustomerDetail() {
       .sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [store.reservations, id]);
 
+  const customerContracts = useMemo(() => {
+    return store.generatedContracts
+      .filter(c => c.customerId === id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [store.generatedContracts, id]);
+
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'payments' ? 'customer-payments' : 'contact';
-  const [activeTab, setActiveTab] = useState<'contact' | 'bookings' | 'credits' | 'notes' | 'files' | 'payments' | 'customer-payments'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'contact' | 'bookings' | 'credits' | 'notes' | 'files' | 'payments' | 'customer-payments' | 'contracts'>(initialTab);
 
   React.useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -167,6 +173,7 @@ export default function CustomerDetail() {
     { id: 'contact', label: 'Contact' },
     { id: 'bookings', label: 'Bookings' },
     { id: 'customer-payments', label: 'Payments' },
+    { id: 'contracts', label: 'Contracts' },
     { id: 'credits', label: 'Credits' },
     { id: 'notes', label: 'Notes' },
     { id: 'files', label: 'Files' },
@@ -557,6 +564,7 @@ export default function CustomerDetail() {
                       <td className="px-6 py-4">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border
                           ${res.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                            res.status === 'Closed' ? 'bg-purple-50 text-purple-700 border-purple-205 font-bold animate-pulse' :
                             res.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 
                             res.status === 'Pending' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
                             'bg-blue-50 text-blue-700 border-blue-200'}`}
@@ -570,6 +578,46 @@ export default function CustomerDetail() {
                 {reservations.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">This customer has no previous bookings.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'contracts' && (
+        <div className="bg-white border border-gray-150 rounded-xl shadow-sm p-6 space-y-4">
+          <div className="flex items-center justify-between border-b pb-3 mb-2">
+            <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-600" /> Contracts History ({customerContracts.length})
+            </h3>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="bg-gray-50 text-gray-500 font-semibold border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3">Contract Name</th>
+                  <th className="px-6 py-3">Reservation ID</th>
+                  <th className="px-6 py-3">Created Date</th>
+                  <th className="px-6 py-3">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {customerContracts.map(contract => (
+                  <tr key={contract.contractId}>
+                    <td className="px-6 py-4 font-medium text-gray-900">{contract.templateName}</td>
+                    <td className="px-6 py-4 font-mono text-indigo-600">#{contract.reservationId.substring(0,8).toUpperCase()}</td>
+                    <td className="px-6 py-4">{format(new Date(contract.createdAt), 'MMM d, yyyy')}</td>
+                    <td className="px-6 py-4">
+                      <a href={contract.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:text-indigo-800">Download</a>
+                    </td>
+                  </tr>
+                ))}
+                {customerContracts.length === 0 && (
+                   <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No contracts generated for this customer yet.</td>
                   </tr>
                 )}
               </tbody>

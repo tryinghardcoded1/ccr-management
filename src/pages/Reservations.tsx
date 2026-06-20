@@ -10,7 +10,7 @@ export default function Reservations() {
   const navigate = useNavigate();
   const newCustomerParam = searchParams.get('newCustomer');
 
-  const [activeFilterTab, setActiveFilterTab] = useState<'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Cancelled' | 'Outstanding'>('Active');
+  const [activeFilterTab, setActiveFilterTab] = useState<'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Closed' | 'Cancelled' | 'Outstanding'>('Active');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -53,13 +53,15 @@ export default function Reservations() {
           return res.status === 'Checked Out';
         case "Completed":
           return res.status === 'Completed';
+        case "Closed":
+          return res.status === 'Closed';
         case "Cancelled":
           return res.status === 'Cancelled';
         case "Outstanding":
           return res.balance > 0;
         case "Active":
         default:
-          return res.status !== 'Completed' && res.status !== 'Cancelled';
+          return res.status !== 'Completed' && res.status !== 'Cancelled' && res.status !== 'Closed';
       }
     });
   }, [reservations, customers, vehicles, searchQuery, activeFilterTab]);
@@ -68,7 +70,7 @@ export default function Reservations() {
     return [...filteredReservations].sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
   }, [filteredReservations]);
 
-  // Aggregate columns total sums for footer row based on ALL filtered
+  // Aggregate columns total sums for footer row based on visible sorted list
   const sumTotals = useMemo(() => {
     let price = 0;
     let paid = 0;
@@ -91,6 +93,7 @@ export default function Reservations() {
     { id: 'TomorrowReturns', label: "Tomorrow's Returns" },
     { id: 'OnRent', label: 'On Rent' },
     { id: 'Completed', label: 'Completed' },
+    { id: 'Closed', label: 'Closed' },
     { id: 'Cancelled', label: 'Cancelled' },
     { id: 'Outstanding', label: 'Outstanding Payment' }
   ] as const;
@@ -210,7 +213,7 @@ export default function Reservations() {
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-[#f8fafc] text-gray-500 font-semibold border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 w-4">
+                 <th className="px-4 py-3 w-4">
                   <input 
                     type="checkbox" 
                     className="rounded border-gray-300 cursor-pointer" 
@@ -258,6 +261,7 @@ export default function Reservations() {
                     <td className="px-4 py-4 font-medium">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border
                         ${res.status === 'Completed' ? 'bg-green-50 text-green-800 border-green-200' : 
+                          res.status === 'Closed' ? 'bg-purple-50 text-purple-800 border-purple-200' :
                           res.status === 'Checked Out' ? 'bg-blue-50 text-blue-800 border-blue-200' :
                           res.status === 'Checked In' ? 'bg-teal-50 text-teal-800 border-teal-200' :
                           res.status === 'Confirmed' ? 'bg-indigo-50 text-indigo-800 border-indigo-200' :

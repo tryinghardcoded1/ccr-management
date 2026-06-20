@@ -1,5 +1,5 @@
 export type VehicleStatus = 'Available' | 'Reserved' | 'Rented' | 'Maintenance' | 'Repair';
-export type ReservationStatus = 'Pending' | 'Confirmed' | 'Checked Out' | 'Checked In' | 'Completed' | 'Cancelled';
+export type ReservationStatus = 'Pending' | 'Confirmed' | 'Checked Out' | 'Checked In' | 'Completed' | 'Cancelled' | 'Closed';
 export type PaymentStatus = 'Pending' | 'Paid';
 export type PaymentType = 'payment' | 'deposit' | 'refund';
 export type ChargeCategory = 'External Charge' | 'Fine' | 'Claim';
@@ -145,4 +145,15 @@ export interface RentalContract {
   fileUrl?: string;
   fileName?: string;
   fileSize?: string;
+}
+
+export interface GeneratedContract {
+  contractId: string;
+  reservationId: string;
+  customerId: string;
+  vehicleId: string;
+  templateName: string;
+  pdfUrl: string;
+  createdAt: string;
+  status: 'GENERATED';
 }

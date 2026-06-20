@@ -90,7 +90,7 @@ export default function Layout(): ReactElement {
         
         // 3. Look for existing active reservation for the client
         const activeRes = store.reservations.find(
-          (r) => r.customerId === custId && !["Completed", "Cancelled"].includes(r.status)
+          (r) => r.customerId === custId && !["Completed", "Cancelled", "Closed"].includes(r.status)
         );
         
         const pickupDate = new Date().toISOString().substring(0, 10);
