@@ -228,7 +228,7 @@ export default function Layout(): ReactElement {
     <div className="flex flex-col h-full bg-[#111827] text-white">
       <div className="h-20 flex items-center px-6 border-b border-gray-800 bg-[#0f172a]">
         <div className="mr-3">
-          <img src="https://media.base44.com/images/public/6a2f5c9c909358353286925c/efc86a642_PhillyCarRentalLogo.png" alt="Logo" className="h-8 object-contain" />
+          <img src="https://i.imgur.com/NMk2vsy.png" alt="Logo" className="h-8 object-contain" />
         </div>
         <div>
           <h1 className="font-black text-lg tracking-tight text-white leading-none">Vehicle Rental Sys</h1>

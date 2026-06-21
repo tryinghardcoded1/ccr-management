@@ -42,6 +42,10 @@ export default function Dashboard() {
   const todayPickups = activeReservations.filter(r => isToday(new Date(r.pickupDate))).length;
   const todayReturns = activeReservations.filter(r => isToday(new Date(r.returnDate))).length;
 
+  const pendingRefunds = store.reservations
+    .filter(r => r.status === 'Completed' && !r.securityDepositRefunded)
+    .slice(0, 5);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans">
       
@@ -181,40 +185,41 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-8">
         
         {/* Fleet Distribution */}
-        <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100">
-          <h3 className="text-xs font-bold text-slate-400 tracking-wider mb-6">FLEET STATUS DISTRIBUTION</h3>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-emerald-50/50 rounded-xl p-4 border-t-2 border-t-emerald-400 border-x border-b border-emerald-100">
-              <p className="text-[10px] font-bold text-emerald-600 tracking-wider mb-2">AVAILABLE</p>
-              <p className="text-3xl font-extrabold text-emerald-700">{availableVehicles}</p>
-            </div>
-            
-            <div className="bg-blue-50/50 rounded-xl p-4 border-t-2 border-t-blue-500 border-x border-b border-blue-100">
-              <p className="text-[10px] font-bold text-blue-600 tracking-wider mb-2">RENTED</p>
-              <p className="text-3xl font-extrabold text-blue-700">{rentedVehicles}</p>
-            </div>
-            
-            <div className="bg-amber-50/50 rounded-xl p-4 border-t-2 border-t-amber-400 border-x border-b border-amber-100">
-              <p className="text-[10px] font-bold text-amber-600 tracking-wider mb-2">SERVICE</p>
-              <p className="text-3xl font-extrabold text-amber-700">{serviceVehicles}</p>
-            </div>
-            
-            <div className="bg-rose-50/50 rounded-xl p-4 border-t-2 border-t-rose-400 border-x border-b border-rose-100">
-              <p className="text-[10px] font-bold text-rose-600 tracking-wider mb-2">REPAIR LOG</p>
-              <p className="text-3xl font-extrabold text-rose-700">{repairVehicles}</p>
+        <div className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100">
+          <div className="flex flex-col md:flex-row justify-between gap-6 mb-6">
+            <div className="flex-1">
+              <h3 className="text-xs font-bold text-slate-400 tracking-wider mb-6">FLEET STATUS DISTRIBUTION</h3>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-emerald-50/50 rounded-xl p-4 border-t-2 border-t-emerald-400 border-x border-b border-emerald-100">
+                  <p className="text-[10px] font-bold text-emerald-600 tracking-wider mb-2">AVAILABLE</p>
+                  <p className="text-3xl font-extrabold text-emerald-700">{availableVehicles}</p>
+                </div>
+                
+                <div className="bg-blue-50/50 rounded-xl p-4 border-t-2 border-t-blue-500 border-x border-b border-blue-100">
+                  <p className="text-[10px] font-bold text-blue-600 tracking-wider mb-2">RENTED</p>
+                  <p className="text-3xl font-extrabold text-blue-700">{rentedVehicles}</p>
+                </div>
+                
+                <div className="bg-amber-50/50 rounded-xl p-4 border-t-2 border-t-amber-400 border-x border-b border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-600 tracking-wider mb-2">SERVICE</p>
+                  <p className="text-3xl font-extrabold text-amber-700">{serviceVehicles}</p>
+                </div>
+                
+                <div className="bg-rose-50/50 rounded-xl p-4 border-t-2 border-t-rose-400 border-x border-b border-rose-100">
+                  <p className="text-[10px] font-bold text-rose-600 tracking-wider mb-2">REPAIR LOG</p>
+                  <p className="text-3xl font-extrabold text-rose-700">{repairVehicles}</p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Schedule */}
-        <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100">
-          <h3 className="text-xs font-bold text-slate-400 tracking-wider mb-6">DAY OPERATION SCHEDULE</h3>
           
-          <div className="grid grid-cols-2 gap-4">
+          <h3 className="text-xs font-bold text-slate-400 tracking-wider mb-6 mt-8">DAY OPERATION SCHEDULE</h3>
+          
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
             <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 tracking-wider mb-2">TODAY'S PICKUPS</p>
               <p className="text-2xl font-extrabold text-slate-800">{todayPickups} <span className="text-base font-semibold text-slate-500">departures</span></p>
@@ -224,6 +229,34 @@ export default function Dashboard() {
               <p className="text-[10px] font-bold text-slate-400 tracking-wider mb-2">TODAY'S RETURNS</p>
               <p className="text-2xl font-extrabold text-slate-800">{todayReturns} <span className="text-base font-semibold text-slate-500">returns</span></p>
             </div>
+          </div>
+        </div>
+
+        {/* Security Deposit Refunds */}
+        <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col h-full">
+          <h3 className="text-xs font-bold text-slate-400 tracking-wider mb-6">PENDING SECURITY REFUNDS</h3>
+          <div className="flex-1 space-y-3 relative">
+            {pendingRefunds.length === 0 ? (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400 font-medium">
+                No pending refunds scheduled.
+              </div>
+            ) : (
+              pendingRefunds.map(r => {
+                const customer = store.customers.find(c => c.id === r.customerId);
+                return (
+                  <Link to={`/reservations/${r.id}`} key={r.id} className="block group bg-slate-50 border border-slate-100 rounded-xl p-3 hover:border-indigo-200 transition-colors">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm font-bold text-slate-800">{customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown'}</span>
+                      <span className="text-sm font-extrabold text-amber-500">${r.securityDepositAmount}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                      <span>{r.id.substring(0, 8)}</span>
+                      <span className="group-hover:text-indigo-500 transition-colors">Process &rarr;</span>
+                    </div>
+                  </Link>
+                );
+              })
+            )}
           </div>
         </div>
 

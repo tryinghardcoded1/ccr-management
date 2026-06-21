@@ -97,7 +97,7 @@ export default function Login() {
           {/* Header */}
           <div className="bg-[#1e3a8a] p-8 text-white text-center">
             <div className="inline-flex items-center justify-center mb-4">
-              <img src="https://media.base44.com/images/public/6a2f5c9c909358353286925c/efc86a642_PhillyCarRentalLogo.png" alt="Logo" className="h-16 object-contain" />
+              <img src="https://i.imgur.com/NMk2vsy.png" alt="Logo" className="h-16 object-contain" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Vehicle Rental Sys</h1>
             <p className="text-blue-100 mt-2 text-sm">Sign in to manage your rental operations</p>
