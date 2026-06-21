@@ -87,23 +87,45 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
-      >
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          {/* Header */}
-          <div className="bg-[#1e3a8a] p-8 text-white text-center">
-            <div className="inline-flex items-center justify-center mb-4">
-              <img src="https://i.imgur.com/NMk2vsy.png" alt="Logo" className="h-16 object-contain" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight">Vehicle Rental Sys</h1>
-            <p className="text-blue-100 mt-2 text-sm">Sign in to manage your rental operations</p>
-          </div>
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-8 relative overflow-hidden">
+      {/* Background Ambience */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
+         <div className="absolute top-[-20%] left-[-10%] w-[50vw] h-[50vw] bg-indigo-600/10 rounded-full mix-blend-screen filter blur-[120px] animate-pulse"></div>
+         <div className="absolute bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] bg-rose-600/10 rounded-full mix-blend-screen filter blur-[120px]"></div>
+      </div>
 
-          <div className="p-8">
+      <motion.div 
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-[1000px] flex rounded-[2rem] shadow-2xl overflow-hidden bg-white relative z-10 border border-slate-200"
+      >
+        {/* Left Visual Panel */}
+        <div className="hidden lg:flex flex-col flex-1 relative bg-slate-900 border-r border-slate-100/10">
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80')] bg-cover bg-center opacity-30 mix-blend-luminosity"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent"></div>
+          
+          <div className="relative z-10 flex flex-col h-full justify-end p-12 text-white">
+            <h2 className="text-3xl font-black mb-4 tracking-tight text-white leading-tight">Elevate Your Fleet<br/>Management</h2>
+            <p className="text-slate-400 font-medium text-sm leading-relaxed">
+              Securely access your operational dashboard to manage reservations, track vehicles, and automate your workflow with precision.
+            </p>
+          </div>
+        </div>
+
+        {/* Right Form Panel */}
+        <div className="flex-1 p-8 sm:p-12 lg:p-16 flex flex-col justify-center bg-white relative">
+            <div className="mb-10 text-center">
+              <img src="https://i.imgur.com/NMk2vsy.png" alt="Company Logo" className="h-20 sm:h-24 max-w-[280px] mx-auto object-contain transition-transform duration-500 hover:scale-105" />
+            </div>
+
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2 text-center">
+               {isSignUp ? 'Create an Account' : 'System Login'}
+            </h1>
+            <p className="text-slate-500 text-sm font-medium text-center mb-8">
+               {isSignUp ? 'Register to configure your workspace.' : 'Enter your credentials to continue.'}
+            </p>
+
             <AnimatePresence mode="wait">
               {error && (
                 <motion.div 
@@ -112,67 +134,66 @@ export default function Login() {
                   exit={{ opacity: 0, height: 0 }}
                   className="mb-6 overflow-hidden"
                 >
-                  <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm border border-red-100">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <div className="flex items-center gap-3 p-4 bg-red-50 text-red-700 rounded-xl text-sm border border-red-100 font-medium">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500" />
                     <span>{error}</span>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">
                   Email Address
                 </label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-600 transition-colors">
-                    <Mail className="w-4 h-4" />
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-600 transition-colors">
+                    <Mail className="w-5 h-5" />
                   </div>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                    className="block w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
                     placeholder="name@company.com"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">
                   Password
                 </label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-600 transition-colors">
-                    <KeyRound className="w-4 h-4" />
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-600 transition-colors">
+                    <KeyRound className="w-5 h-5" />
                   </div>
                   <input
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                    className="block w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
                     placeholder="••••••••"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center justify-between pt-2">
                 <div className="flex items-center">
                   <input
                     id="remember-me"
-                    name="remember-me"
                     type="checkbox"
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded cursor-pointer"
                   />
-                  <label htmlFor="remember-me" className="ml-2 block text-xs text-gray-600 font-medium">
+                  <label htmlFor="remember-me" className="ml-2.5 block text-xs font-semibold text-slate-600 cursor-pointer select-none">
                     Remember me
                   </label>
                 </div>
                 <div className="text-xs">
-                  <a href="#" className="font-semibold text-blue-600 hover:text-blue-500">
+                  <a href="#" className="font-bold text-indigo-600 hover:text-indigo-500 transition-colors">
                     Forgot password?
                   </a>
                 </div>
@@ -181,35 +202,35 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all mt-6"
+                className="w-full flex justify-center items-center gap-2 py-4 px-4 border border-transparent rounded-xl shadow-sm text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 disabled:opacity-70 disabled:cursor-not-allowed transition-all mt-6"
               >
                 {isLoading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
-                  isSignUp ? 'Create & Register Account' : 'Sign In'
+                  isSignUp ? 'Create & Register Account' : 'Sign In to Dashboard'
                 )}
               </button>
 
-              <div className="text-center mt-4">
+              <div className="text-center mt-6">
                 <button
                   type="button"
                   onClick={() => {
                     setIsSignUp(!isSignUp);
                     setError('');
                   }}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-500 transition-colors"
+                  className="text-xs font-bold text-slate-500 hover:text-indigo-600 transition-colors"
                 >
-                  {isSignUp ? 'Already have an operational account? Sign In' : "Don't have an account or can't log in? Register / Sign Up"}
+                  {isSignUp ? 'Already have an operational account? Sign In' : "Need an account? Register"}
                 </button>
               </div>
              </form>
 
-            <div className="relative my-5">
+            <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-100"></div>
+                <div className="w-full border-t border-slate-100"></div>
               </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-3 text-gray-400 font-medium">Or continue with</span>
+              <div className="relative flex justify-center text-[10px] font-black tracking-widest uppercase">
+                <span className="bg-white px-4 text-slate-400">Or Access With</span>
               </div>
             </div>
 
@@ -217,9 +238,9 @@ export default function Login() {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isLoading}
-              className="w-full flex justify-center items-center gap-2.5 py-3 px-4 border border-gray-200 rounded-xl shadow-sm text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all animate-none"
+              className="w-full flex justify-center items-center gap-3 py-3.5 px-4 border-2 border-slate-100 rounded-xl text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-200 focus:outline-none focus:ring-4 focus:ring-slate-100 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
                 <g transform="matrix(1, 0, 0, 1, 0, 0)">
                   <path d="M21.35,11.1H12v2.7h5.38c-0.24,1.28 -0.96,2.37 -2.04,3.1v2.6h3.3c1.93,-1.78 3.04,-4.4 3.04,-7.4c0,-0.34 -0.03,-0.68 -0.09,-1H21.35z" fill="#4285F4" />
                   <path d="M12,20.5c2.3,0 4.23,-0.76 5.64,-2.1l-3.3,-2.6c-0.9,0.6 -2.07,0.97 -3.34,0.97 -2.26,0 -4.17,-1.53 -4.85,-3.6H2.74v2.7C4.14,18.72 7.8,20.5 12,20.5z" fill="#34A853" />
@@ -227,21 +248,9 @@ export default function Login() {
                   <path d="M12,6.18c1.25,0 2.37,0.43 3.25,1.27l2.43,-2.43C16.22,3.58 14.3,3 12,3c-4.2,0 -7.86,1.78 -9.26,4.4V10.1h4.4c0.68,-2.07 2.6,-3.6 4.86,-3.6z" fill="#EA4335" />
                 </g>
               </svg>
-              Sign In with Google
+              Google Workspace Log In
             </button>
-
-
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <p className="text-center text-xs text-gray-500">
-                Authorized access only. Use your official company credentials.
-              </p>
-            </div>
-          </div>
         </div>
-        
-        <p className="text-center text-xs text-gray-400 mt-8">
-          &copy; 2026 Vehicle Rental Sys. All rights reserved.
-        </p>
       </motion.div>
     </div>
   );
