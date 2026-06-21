@@ -2,12 +2,14 @@ import { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Wallet, Users, Clock, ArrowRightLeft } from 'lucide-react';
+import { CreditCard, Wallet, Users, Clock, ArrowRightLeft, Upload } from 'lucide-react';
+import { BulkImportModal } from '../components/BulkImportModal';
 
 export default function Payments() {
-  const { payments, customers, reservations } = useStore();
+  const { payments, customers, reservations, addPayment } = useStore();
   const navigate = useNavigate();
   const [filterType, setFilterType] = useState('all');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const groupedCustomerPayments = useMemo(() => {
     // 1. Filter matching payments by types (payment, refund, deposit)
@@ -92,6 +94,13 @@ export default function Payments() {
           </div>
           
           <div className="flex items-center gap-2">
+            <button 
+              type="button"
+              onClick={() => setIsImportModalOpen(true)} 
+              className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition"
+            >
+              Bulk Import
+            </button>
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Filter By Type:</label>
             <select 
               className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs bg-white font-semibold text-gray-700 cursor-pointer hover:border-gray-400 transition" 
@@ -182,6 +191,23 @@ export default function Payments() {
           </table>
         </div>
       </div>
+      {isImportModalOpen && (
+        <BulkImportModal
+          title="Bulk Import Payments"
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          expectedHeaders={['customerId', 'reservationId', 'date', 'type', 'method', 'amount']}
+          onImport={(data) => {
+            for (const row of data as any[]) {
+              addPayment({
+                ...row,
+                amount: parseFloat(row.amount)
+              });
+            }
+            setIsImportModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

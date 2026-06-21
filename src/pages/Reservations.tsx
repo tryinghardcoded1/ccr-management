@@ -2,11 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { Plus, Search, Calendar, CheckSquare, Shield, Info, AlertTriangle, Printer, Trash2 } from 'lucide-react';
+import { Plus, Search, Calendar, CheckSquare, Shield, Info, AlertTriangle, Printer, Trash2, Upload } from 'lucide-react';
+import { BulkImportModal } from '../components/BulkImportModal';
 
 export default function Reservations() {
   const { reservations, customers, vehicles, chargeTemplates, createReservation, payments, deleteReservations } = useStore();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const navigate = useNavigate();
   const newCustomerParam = searchParams.get('newCustomer');
 
@@ -150,6 +152,13 @@ export default function Reservations() {
             Availability Check
           </button>
           
+          <button 
+            type="button"
+            onClick={() => setIsImportModalOpen(true)} 
+            className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition mr-2"
+          >
+            <Upload className="w-4 h-4" /> Bulk Import
+          </button>
           <button 
             type="button"
             onClick={() => navigate('/reservations/new')} 
@@ -479,6 +488,25 @@ export default function Reservations() {
           </div>
         </div>
       )} */ }
+      {isImportModalOpen && (
+        <BulkImportModal
+          title="Bulk Import Reservations"
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          expectedHeaders={['customerId', 'vehicleId', 'pickupDate', 'pickupTime', 'returnDate', 'returnTime', 'status', 'totalAmount', 'balance', 'securityDepositAmount', 'securityDepositStatus']}
+          onImport={(data) => {
+            for (const row of data as any[]) {
+              createReservation({
+                ...row,
+                totalAmount: parseFloat(row.totalAmount),
+                balance: parseFloat(row.balance),
+                securityDepositAmount: parseFloat(row.securityDepositAmount)
+              }, []);
+            }
+            setIsImportModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

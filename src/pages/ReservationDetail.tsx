@@ -85,16 +85,28 @@ export default function ReservationDetail() {
     completionBlockers.push("All additional charges (Fines, Claims, etc.) must be Paid in full");
   }
 
-  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newStatus = e.target.value as ReservationStatus;
-    if (newStatus === 'Completed') {
-      if (completionBlockers.length > 0) {
-        alert(`Cannot complete booking:\n\n${completionBlockers.join('\n')}`);
-        return;
-      }
-    }
-    store.updateReservationStatus(reservation.id, newStatus);
+  const handleConfirmReservation = () => {
+    if (reservation.status === 'Closed') return;
+    store.updateReservationStatus(reservation.id, 'Confirmed');
   };
+
+  const handleCheckOut = async () => {
+     if (reservation.status === 'Closed') return;
+     setActiveModal('initial_checkout'); 
+  };
+
+  const handleReturnVehicle = async () => {
+       if (reservation.status === 'Closed') return;
+       await handleProcessReturn();
+  };
+
+  const handleRefundDeposit = async () => {
+        if (reservation.status === 'Closed') return;
+        setRefundForm({ amount: reservation.securityDepositAmount, method: 'Credit Card' });
+        setActiveModal('deposit');
+  };
+
+  const isClosed = reservation.status === 'Closed';
 
   const handleProcessReturn = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -318,69 +330,60 @@ export default function ReservationDetail() {
 
   return (
     <div className="space-y-6">
-      {/* Header Info */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b border-gray-200 pb-5">
-        <div>
-          <Link to="/reservations" className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-indigo-600 transition-colors mb-2">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to list
-          </Link>
+        {/* Header Info */}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b border-gray-200 pb-5">
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold tracking-tight text-gray-900">
-              Booking {reservation.id.substring(0, 8).toUpperCase()}
-            </h2>
-            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border
-              ${reservation.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
-                reservation.status === 'Closed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                reservation.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 
-                reservation.status === 'Pending' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
-                'bg-blue-50 text-blue-700 border-blue-200'}`}
-            >
-              {reservation.status}
-            </span>
+              <h2 className="text-2xl font-bold tracking-tight text-gray-900">
+                Booking {reservation.id.substring(0, 8).toUpperCase()}
+              </h2>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border
+                ${reservation.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                  reservation.status === 'Closed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                  reservation.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 
+                  reservation.status === 'Pending' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
+                  'bg-blue-50 text-blue-700 border-blue-200'}`}
+              >
+                {reservation.status}
+              </span>
           </div>
-          <p className="text-xs text-gray-500 mt-1">Booking date: {format(new Date(reservation.bookingDate), 'MMM d, yyyy h:mm a')}</p>
+
+          <div className="flex flex-wrap items-center gap-3">
+              <Link 
+                to={`/reservations/new?customerId=${customer.id}`} 
+                className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-90 text-white rounded-lg text-sm font-semibold shadow-sm transition"
+                style={{ backgroundColor: '#1e3a8a' }}
+              >
+                Assign New Vehicle
+              </Link>
+              
+              {reservation.status === 'Pending' && (
+                <button onClick={handleConfirmReservation} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-blue-700">Confirm</button>
+              )}
+              {reservation.status === 'Confirmed' && (
+                <button onClick={handleCheckOut} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-purple-700">Check Out</button>
+              )}
+              {reservation.status === 'Checked Out' && !reservation.vehicleReturned && (
+                <button onClick={handleReturnVehicle} className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-orange-700">Return Vehicle</button>
+              )}
+              {reservation.status === 'Completed' && (
+                <button onClick={handleRefundDeposit} className={reservation.securityDepositRefunded ? "px-4 py-2 bg-gray-300 text-white rounded-lg text-sm font-bold" : "px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-red-700"}>
+                  {reservation.securityDepositRefunded ? 'Deposit Refunded' : 'Refund Deposit'}
+                </button>
+              )}
+          </div>
         </div>
 
-        {/* Sync reservation status picker */}
-        <div className="flex flex-wrap items-center gap-3 self-start sm:self-center">
-          {reservation.status === 'Pending' && (
-            <button
-              onClick={() => {
-                setDepositForm({
-                  amount: 500,
-                  holdUntil: format(parseISO(reservation.returnDate), 'yyyy-MM-dd'),
-                  method: 'Credit Card'
-                });
-                setActiveModal('initial_checkout');
-              }}
-              className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold shadow-md transition flex items-center gap-2"
-            >
-              Complete Checkout & Payment <CreditCard className="w-4 h-4" />
-            </button>
-          )}
-
-          <Link 
-            to={`/reservations/new?customerId=${customer.id}`} 
-            className="px-4 py-2 bg-[#001D4A] hover:bg-opacity-90 text-white rounded-lg text-sm font-semibold shadow-sm transition mr-4"
-            style={{ backgroundColor: '#1e3a8a' }}
-          >
-            Assign New Vehicle
-          </Link>
-          <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Shift Status:</label>
-          <select 
-            value={reservation.status} 
-            onChange={handleStatusChange}
-            className="border-gray-200 rounded-lg text-sm font-semibold bg-white p-2 border shadow-sm cursor-pointer hover:border-gray-300"
-          >
-            <option value="Pending">Pending</option>
-            <option value="Checked Out">Checked Out</option>
-            <option value="Checked In">Checked In</option>
-            <option value="Completed">Completed</option>
-            <option value="Closed">Closed</option>
-            <option value="Cancelled">Cancelled</option>
-          </select>
-        </div>
-      </div>
+        {/* OPERATIONS HUB */}
+        {!isClosed && (
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-2 overflow-x-auto">
+                 <button onClick={() => setActiveModal('claim')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">Add Claim</button>
+                 <button onClick={() => setActiveModal('fine')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">Add Fine</button>
+                 <button onClick={() => setActiveModal('external')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">External Charge</button>
+                 <button onClick={() => setActiveModal('switch')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">Switch Vehicle</button>
+                 <button onClick={() => setActiveModal('returnVehicle')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">Checklist</button>
+                 <button onClick={() => setActiveModal('agreement')} className="px-3 py-2 bg-gray-50 border rounded-lg text-xs font-bold hover:bg-gray-100">View Agreement</button>
+            </div>
+        )}
 
       {/* Main Column Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">

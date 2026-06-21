@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, Phone, PhoneOff, RefreshCw, Layers, CheckCircle2, DollarSign } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, RefreshCw, Layers, CheckCircle2, DollarSign, ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate } from "react-router-dom";
 
 // EMPTY firebaseConfig as requested
 const firebaseConfig = {
@@ -28,6 +29,7 @@ if (isFirebaseActive) {
 }
 
 export default function CustomerVoicePortal() {
+  const navigate = useNavigate();
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [micActive, setMicActive] = useState(false);
@@ -350,9 +352,17 @@ export default function CustomerVoicePortal() {
 
       {/* Header */}
       <div className="z-10 flex items-center justify-between border-b border-zinc-800/60 pb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-[pulse_1.5s_infinite]"></div>
-          <span className="text-[11px] font-black tracking-widest text-zinc-400 uppercase">Philly Car Rental Portal</span>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => navigate(-1)} 
+            className="text-zinc-500 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-[pulse_1.5s_infinite]"></div>
+            <span className="text-[11px] font-black tracking-widest text-zinc-400 uppercase">Philly Car Rental Portal</span>
+          </div>
         </div>
         <div className="text-[10px] bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-full text-zinc-400 font-bold font-mono">
           {isFirebaseActive ? "Firestore Mode" : "Demo Mode"}

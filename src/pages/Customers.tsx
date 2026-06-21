@@ -2,11 +2,13 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { Customer } from '../types';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Filter, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, CheckCircle2, Trash2, Upload } from 'lucide-react';
+import { BulkImportModal } from '../components/BulkImportModal';
 
 export default function Customers() {
   const { customers, addCustomer, deleteCustomers } = useStore();
   const [showDrawer, setShowDrawer] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<'All' | 'NeedCheck'>('All');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -126,6 +128,13 @@ export default function Customers() {
             style={{ backgroundColor: '#1e3a8a' }}
           >
             <Plus className="w-4 h-4" /> Add Customer
+          </button>
+          <button 
+            type="button"
+            onClick={() => setIsImportModalOpen(true)} 
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold transition"
+          >
+            <Upload className="w-4 h-4" /> Bulk Import
           </button>
         </div>
       </div>
@@ -258,7 +267,20 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* Drawer slide panel for registering new customer */}
+      {isImportModalOpen && (
+        <BulkImportModal
+          title="Bulk Import Customers"
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          expectedHeaders={['firstName', 'lastName', 'email', 'phone', 'street', 'street2', 'city', 'state', 'zip', 'country', 'driverLicenseNumber', 'driverLicenseExpiration', 'notes']}
+          onImport={(data) => {
+            for (const row of data as any[]) {
+              addCustomer(row);
+            }
+            setIsImportModalOpen(false);
+          }}
+        />
+      )}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex justify-end bg-gray-950/40 backdrop-blur-xs">
           <div className="w-full sm:max-w-lg bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-250">

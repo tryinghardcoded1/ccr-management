@@ -1,21 +1,35 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { Vehicle } from '../types';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Pencil, Upload } from 'lucide-react';
+import Papa from 'papaparse';
 
 export default function Vehicles() {
-  const { vehicles, addVehicle, deleteVehicles } = useStore();
+  const { vehicles, addVehicle, updateVehicle, deleteVehicles } = useStore();
   const [showDrawer, setShowDrawer] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Vehicle>>({ status: 'Available' });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.make && formData.model && formData.licensePlate && formData.dailyRate) {
-      addVehicle(formData as any);
+      if (editingVehicleId) {
+        updateVehicle(editingVehicleId, formData);
+      } else {
+        addVehicle(formData as any);
+      }
       setShowDrawer(false);
       setFormData({ status: 'Available' });
+      setEditingVehicleId(null);
     }
+  };
+
+  const startEdit = (v: Vehicle) => {
+    setFormData(v);
+    setEditingVehicleId(v.id);
+    setShowDrawer(true);
   };
 
   const toggleSelection = (id: string) => {
@@ -50,6 +64,10 @@ export default function Vehicles() {
           <button onClick={() => setShowDrawer(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
             Add Vehicle
           </button>
+          <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-1.5">
+            <Upload className="w-4 h-4" />
+            Bulk Import
+          </button>
         </div>
       </div>
 
@@ -63,6 +81,11 @@ export default function Vehicles() {
                 checked={selectedIds.has(v.id)}
                 onChange={() => toggleSelection(v.id)}
               />
+            </div>
+            <div className="absolute top-3 right-3">
+              <button onClick={() => startEdit(v)} className="p-1.5 bg-white rounded-full border border-gray-200 text-gray-500 hover:text-indigo-600 hover:border-indigo-200 shadow-sm transition">
+                <Pencil className="w-4 h-4" />
+              </button>
             </div>
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center pl-10">
               <span className="font-bold text-gray-900">{v.licensePlate}</span>
@@ -98,22 +121,22 @@ export default function Vehicles() {
         <div className="fixed inset-0 z-50 flex justify-end bg-gray-900/50 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg">New Vehicle</h3>
-              <button onClick={() => setShowDrawer(false)} className="text-gray-500 hover:text-gray-900">Close</button>
+              <h3 className="font-bold text-lg">{editingVehicleId ? 'Edit Vehicle' : 'New Vehicle'}</h3>
+              <button onClick={() => { setShowDrawer(false); setEditingVehicleId(null); setFormData({ status: 'Available' }); }} className="text-gray-500 hover:text-gray-900">Close</button>
             </div>
             <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">Make</label><input required className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, make: e.target.value})} /></div>
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">Model</label><input required className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, model: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Make</label><input required className="w-full border rounded-md px-3 py-2 text-sm" value={formData.make || ''} onChange={e => setFormData({...formData, make: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Model</label><input required className="w-full border rounded-md px-3 py-2 text-sm" value={formData.model || ''} onChange={e => setFormData({...formData, model: e.target.value})} /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">Year</label><input required type="number" className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, year: parseInt(e.target.value)})} /></div>
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">License Plate</label><input required className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, licensePlate: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Year</label><input required type="number" className="w-full border rounded-md px-3 py-2 text-sm" value={formData.year || ''} onChange={e => setFormData({...formData, year: parseInt(e.target.value)})} /></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">License Plate</label><input required className="w-full border rounded-md px-3 py-2 text-sm" value={formData.licensePlate || ''} onChange={e => setFormData({...formData, licensePlate: e.target.value})} /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">Daily Rate ($)</label><input required type="number" className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, dailyRate: parseFloat(e.target.value)})} /></div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Daily Rate ($)</label><input required type="number" className="w-full border rounded-md px-3 py-2 text-sm" value={formData.dailyRate || ''} onChange={e => setFormData({...formData, dailyRate: parseFloat(e.target.value)})} /></div>
                 <div><label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-                  <select required className="w-full border rounded-md px-3 py-2 text-sm bg-white" onChange={e => setFormData({...formData, category: e.target.value})}>
+                  <select required className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={formData.category || ''} onChange={e => setFormData({...formData, category: e.target.value})}>
                     <option value="">Select...</option>
                     <option value="Economy">Economy</option>
                     <option value="Compact">Compact</option>
@@ -126,15 +149,67 @@ export default function Vehicles() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-               <div><label className="block text-xs font-medium text-gray-700 mb-1">VIN</label><input className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, VIN: e.target.value})} /></div>
-               <div><label className="block text-xs font-medium text-gray-700 mb-1">Color</label><input className="w-full border rounded-md px-3 py-2 text-sm" onChange={e => setFormData({...formData, color: e.target.value})} /></div>
+                 <div><label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                  <select required className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={formData.status || 'Available'} onChange={e => setFormData({...formData, status: e.target.value as any})}>
+                    <option value="Available">Available</option>
+                    <option value="Reserved">Reserved</option>
+                    <option value="Rented">Rented</option>
+                    <option value="Maintenance">Maintenance</option>
+                    <option value="Repair">Repair</option>
+                  </select>
+                </div>
+               <div><label className="block text-xs font-medium text-gray-700 mb-1">Color</label><input className="w-full border rounded-md px-3 py-2 text-sm" value={formData.color || ''} onChange={e => setFormData({...formData, color: e.target.value})} /></div>
               </div>
+               <div><label className="block text-xs font-medium text-gray-700 mb-1">VIN</label><input className="w-full border rounded-md px-3 py-2 text-sm" value={formData.VIN || ''} onChange={e => setFormData({...formData, VIN: e.target.value})} /></div>
               <div className="pt-6">
-                <button type="submit" className="w-full bg-indigo-600 text-white rounded-lg py-2 font-medium hover:bg-indigo-700">Save Vehicle</button>
+                <button type="submit" className="w-full bg-indigo-600 text-white rounded-lg py-2 font-medium hover:bg-indigo-700">{editingVehicleId ? 'Update Vehicle' : 'Save Vehicle'}</button>
               </div>
             </form>
           </div>
         </div>
+      )}
+      {isImportModalOpen && (
+       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-lg">Bulk Import Vehicles</h3>
+              <button onClick={() => setIsImportModalOpen(false)} className="text-gray-500 hover:text-gray-900">Close</button>
+            </div>
+            <p className="text-sm text-gray-600">Please upload a CSV file with the following headers: <strong>make, model, year, licensePlate, dailyRate, category, status, color, VIN, mileage</strong>.</p>
+            <input type="file" accept=".csv" onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                  const requiredHeaders = ['make', 'model', 'year', 'licensePlate', 'dailyRate', 'category', 'status', 'color', 'VIN', 'mileage'];
+                  const actualHeaders = results.meta.fields || [];
+                  const missing = requiredHeaders.filter(h => !actualHeaders.includes(h));
+                  if (missing.length > 0) {
+                    alert(`Error: Missing or incorrect headers: ${missing.join(', ')}`);
+                    return;
+                  }
+                  for (const row of results.data as any[]) {
+                    addVehicle({
+                      make: row.make,
+                      model: row.model,
+                      year: parseInt(row.year),
+                      licensePlate: row.licensePlate,
+                      dailyRate: parseFloat(row.dailyRate),
+                      category: row.category,
+                      status: row.status as any,
+                      color: row.color,
+                      VIN: row.VIN,
+                      mileage: parseInt(row.mileage)
+                    });
+                  }
+                  setIsImportModalOpen(false);
+                }
+              });
+            }} className="w-full border rounded-lg p-2 text-sm" />
+          </div>
+       </div>
       )}
     </div>
   );
