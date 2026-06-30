@@ -122,6 +122,7 @@ interface AppState {
     paymentMethod: string
   ) => Promise<void>;
   addGeneratedContract: (contract: Omit<GeneratedContract, 'contractId' | 'createdAt'>) => Promise<string>;
+  regenerateContract: (reservationId: string) => Promise<void>;
 
   recalculateCustomerStats: (customerId: string) => Promise<void>;
   recalculateReservationTotals: (reservationId: string) => Promise<void>;
@@ -688,6 +689,7 @@ export const useStore = create<AppState>((set, get) => ({
         const customer = state.customers.find(c => c.id === data.customerId);
         const vehicleObj = state.vehicles.find(v => v.id === data.vehicleId);
         if (customer && vehicleObj && customer.email) {
+          const activeTemplate = state.emailTemplates.find(t => t.isActive);
           fetch('/api/email/send-confirmation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -698,7 +700,11 @@ export const useStore = create<AppState>((set, get) => ({
               vehicleName: vehicleObj.make + ' ' + vehicleObj.model,
               pickupDate: data.pickupDate,
               returnDate: data.returnDate,
-              totalAmount: computedTotalAmount
+              totalAmount: computedTotalAmount,
+              logo: activeTemplate?.logo || null,
+              customMessage: activeTemplate?.customMessage || null,
+              signature: activeTemplate?.signature || null,
+              businessInfo: activeTemplate?.businessInfo || null
             })
           }).catch(err => console.error("Failed to send email confirmation:", err));
         }
@@ -720,6 +726,7 @@ export const useStore = create<AppState>((set, get) => ({
     
     if (customer && vehicleObj && customer.email) {
       try {
+        const activeTemplate = state.emailTemplates.find(t => t.isActive);
         await fetch('/api/email/send-confirmation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -730,7 +737,11 @@ export const useStore = create<AppState>((set, get) => ({
             vehicleName: vehicleObj.make + ' ' + vehicleObj.model,
             pickupDate: res.pickupDate,
             returnDate: res.returnDate,
-            totalAmount: res.totalAmount || res.baseRental
+            totalAmount: res.totalAmount || res.baseRental,
+            logo: activeTemplate?.logo || null,
+            customMessage: activeTemplate?.customMessage || null,
+            signature: activeTemplate?.signature || null,
+            businessInfo: activeTemplate?.businessInfo || null
           })
         });
       } catch (e) {
@@ -770,6 +781,71 @@ export const useStore = create<AppState>((set, get) => ({
     };
     await setDoc(doc(db, 'generatedContracts', id), newContract);
     return id;
+  },
+
+  regenerateContract: async (reservationId) => {
+    const state = get();
+    const res = state.reservations.find(r => r.id === reservationId);
+    if (!res) return;
+
+    const vehicle = state.vehicles.find(v => v.id === res.vehicleId);
+    if (!vehicle) return;
+
+    // Calculate rental days
+    let rentalDays = 1;
+    try {
+      const start = parseISO(res.pickupDate);
+      const end = parseISO(res.returnDate);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        const d = differenceInDays(end, start);
+        rentalDays = isNaN(d) || d < 1 ? 1 : d;
+      }
+    } catch (e) {
+      rentalDays = 1;
+    }
+
+    const newBaseRental = rentalDays * (vehicle.dailyRate || 0);
+
+    // Update baseRental in firestore
+    await updateDoc(doc(db, 'reservations', reservationId), {
+      baseRental: newBaseRental
+    });
+
+    // Solve race condition: immediately update local state synchronously
+    const updatedReservations = get().reservations.map((r) => 
+      r.id === reservationId ? { ...r, baseRental: newBaseRental } : r
+    );
+    useStore.setState({ reservations: updatedReservations });
+
+    // Recalculate totals
+    await get().recalculateReservationTotals(reservationId);
+
+    // Sync generated contract entry in db
+    const existing = get().generatedContracts.find(c => c.reservationId === reservationId);
+    const activeContractObj = get().contracts.find(c => c.status === 'Active');
+    const templateName = activeContractObj?.name || 'Standard Rental Agreement';
+
+    if (existing) {
+      await updateDoc(doc(db, 'generatedContracts', existing.contractId), {
+        vehicleId: res.vehicleId,
+        templateName: templateName,
+        createdAt: new Date().toISOString(),
+        status: 'GENERATED'
+      });
+    } else {
+      const id = uuidv4();
+      const newContract = {
+        contractId: id,
+        reservationId: reservationId,
+        customerId: res.customerId,
+        vehicleId: res.vehicleId,
+        templateName: templateName,
+        pdfUrl: '#',
+        createdAt: new Date().toISOString(),
+        status: 'GENERATED'
+      };
+      await setDoc(doc(db, 'generatedContracts', id), newContract);
+    }
   },
 
   markVehicleReturned: async (id) => {

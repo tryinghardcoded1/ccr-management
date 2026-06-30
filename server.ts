@@ -16,8 +16,17 @@ async function startServer() {
   // Email confirmation endpoint
   app.post("/api/email/send-confirmation", async (req, res) => {
     try {
-      const { customerEmail, customerName, reservationId, vehicleName, pickupDate, returnDate, totalAmount } = req.body;
+      const { customerEmail, customerName, reservationId, vehicleName, pickupDate, returnDate, totalAmount, logo, customMessage, signature, businessInfo } = req.body;
+      const logoUrl = logo || "https://i.imgur.com/NMk2vsy.png";
       
+      let formattedMsg = customMessage || "Thank you for choosing Rent A.i. Your vehicle is ready and your reservation is confirmed.";
+      formattedMsg = formattedMsg
+        .replace(/{{customer_name}}/g, customerName || "")
+        .replace(/{{vehicle}}/g, vehicleName || "")
+        .replace(/{{pickup_date}}/g, pickupDate || "")
+        .replace(/{{return_date}}/g, returnDate || "")
+        .replace(/{{total_cost}}/g, totalAmount ? `$${totalAmount}` : "");
+
       // If we don't have SMTP credentials, we just simulate the email
       if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
         console.log(`[Email Simulation] Sent booking confirmation to ${customerEmail}`);
@@ -36,23 +45,48 @@ async function startServer() {
       });
 
       const info = await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"Fleet Rentals" <no-reply@fleetrentals.com>',
+        from: process.env.SMTP_FROM || '"Rent A.i." <no-reply@rentai.com>',
         to: customerEmail,
         subject: `Reservation Confirmed - Booking #${reservationId.slice(0, 6).toUpperCase()}`,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-            <h2 style="color: #1e3a8a; margin-top: 0;">Booking Confirmed, ${customerName}!</h2>
-            <p>Thank you for choosing Fleet Rentals. Your vehicle is ready and your reservation is confirmed.</p>
-            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;">
-              <ul style="list-style: none; padding: 0; margin: 0; line-height: 1.6;">
-                <li><strong>Vehicle:</strong> ${vehicleName}</li>
-                <li><strong>Pickup:</strong> ${new Date(pickupDate).toLocaleDateString()}</li>
-                <li><strong>Return:</strong> ${new Date(returnDate).toLocaleDateString()}</li>
-                <li><strong>Estimated Cost:</strong> $${totalAmount}</li>
-              </ul>
+          <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+            <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 24px; margin-bottom: 24px;">
+              <img src="${logoUrl}" alt="Logo" style="max-height: 70px; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto; object-fit: contain;" />
+              <h1 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 800; tracking-tight: -0.025em; text-transform: uppercase;">${businessInfo || 'Rent A.i.'}</h1>
+              <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px; font-weight: 500;">Booking Confirmation</p>
             </div>
-            <p>If you have any questions, feel free to contact us.</p>
-            <p style="color: #6b7280; font-size: 0.9em; margin-bottom: 0;">Safe travels,<br/>The Fleet Rentals Team</p>
+            
+            <h2 style="color: #1e3a8a; margin-top: 0; font-size: 18px; font-weight: 700;">Booking Confirmed, ${customerName}!</h2>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6; white-space: pre-line;">${formattedMsg}</p>
+            
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; margin: 24px 0;">
+              <h3 style="color: #0f172a; margin-top: 0; margin-bottom: 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Reservation Details</h3>
+              <table style="width: 100%; font-size: 13px; color: #475569; border-collapse: collapse; line-height: 1.8;">
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600;">Vehicle:</td>
+                  <td style="padding: 6px 0; text-align: right; color: #0f172a; font-weight: 700;">${vehicleName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600;">Pickup Date:</td>
+                  <td style="padding: 6px 0; text-align: right; color: #0f172a;">${pickupDate}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600;">Return Date:</td>
+                  <td style="padding: 6px 0; text-align: right; color: #0f172a;">${returnDate}</td>
+                </tr>
+                <tr style="border-top: 1px solid #e2e8f0;">
+                  <td style="padding: 10px 0 0 0; font-weight: 700; color: #0f172a; font-size: 14px;">Total Cost:</td>
+                  <td style="padding: 10px 0 0 0; text-align: right; color: #1e3a8a; font-weight: 800; font-size: 16px;">$${totalAmount}</td>
+                </tr>
+              </table>
+            </div>
+            
+            <p style="color: #475569; font-size: 14px; line-height: 1.6; white-space: pre-line;">${signature || 'Best regards,\nThe Rent A.i. Team'}</p>
+            
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 30px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+              <p style="margin: 0;">Need to make changes? You can call our AI Voice assistant anytime to modify your booking instantly.</p>
+              <p style="margin: 8px 0 0 0;">&copy; 2026 ${businessInfo || 'Rent A.i.'}. All rights reserved.</p>
+            </div>
           </div>
         `,
       });
@@ -66,7 +100,8 @@ async function startServer() {
   // Email agreement endpoint
   app.post("/api/email/send-agreement", async (req, res) => {
     try {
-      const { customerEmail, customerName, reservationId, vehicleName, pickupDate, returnDate, agreementText } = req.body;
+      const { customerEmail, customerName, reservationId, vehicleName, pickupDate, returnDate, agreementText, logo, businessInfo, signature } = req.body;
+      const logoUrl = logo || "https://i.imgur.com/NMk2vsy.png";
       
       // If we don't have SMTP credentials, we just simulate the email
       if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -86,53 +121,69 @@ async function startServer() {
       });
 
       const info = await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"Fleet Rentals" <no-reply@fleetrentals.com>',
+        from: process.env.SMTP_FROM || '"Rent A.i." <no-reply@rentai.com>',
         to: customerEmail,
         subject: `Rental Agreement for Booking #${reservationId.slice(0, 6).toUpperCase()}`,
         html: `
-          <div style="font-family: sans-serif; max-width: 650px; margin: auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-            <div style="text-align: center; border-bottom: 2px solid #eef2f6; padding-bottom: 20px; margin-bottom: 20px;">
-              <h1 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">FLEET RENTALS</h1>
-              <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">Official Rental Agreement & Contract</p>
+          <div style="font-family: 'Inter', sans-serif; max-width: 650px; margin: auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+            <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 24px; margin-bottom: 24px;">
+              <img src="${logoUrl}" alt="Logo" style="max-height: 70px; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto; object-fit: contain;" />
+              <h1 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 800; tracking-tight: -0.025em; text-transform: uppercase;">${businessInfo || 'Rent A.i.'}</h1>
+              <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px; font-weight: 500;">Official Rental Agreement & Contract</p>
             </div>
             
-            <p style="font-size: 16px; color: #1f2937;">Dear <strong>${customerName}</strong>,</p>
-            <p style="font-size: 14px; color: #4b5563; line-height: 1.5;">
-              Please review and sign the rental agreement for your upcoming booking <strong>#${reservationId.slice(0, 8).toUpperCase()}</strong>.
+            <p style="font-size: 15px; color: #1e293b; line-height: 1.6; font-weight: 500;">Dear <strong>${customerName}</strong>,</p>
+            <p style="font-size: 14px; color: #334155; line-height: 1.6;">
+              Please review and sign the official rental agreement contract for your upcoming booking <strong>#${reservationId.slice(0, 8).toUpperCase()}</strong>.
             </p>
             
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <h3 style="color: #0f172a; margin-top: 0; margin-bottom: 10px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Booking Summary</h3>
-              <table style="width: 100%; font-size: 13px; color: #334155; border-collapse: collapse;">
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; margin: 24px 0;">
+              <h3 style="color: #0f172a; margin-top: 0; margin-bottom: 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Booking Summary</h3>
+              <table style="width: 100%; font-size: 13px; color: #475569; border-collapse: collapse; line-height: 1.8;">
                 <tr>
                   <td style="padding: 4px 0; font-weight: 600;">Vehicle:</td>
-                  <td style="padding: 4px 0; text-align: right;">${vehicleName}</td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a; font-weight: 700;">${vehicleName}</td>
                 </tr>
                 <tr>
                   <td style="padding: 4px 0; font-weight: 600;">Pickup Date:</td>
-                  <td style="padding: 4px 0; text-align: right;">${pickupDate}</td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a;">${pickupDate}</td>
                 </tr>
                 <tr>
                   <td style="padding: 4px 0; font-weight: 600;">Return Date:</td>
-                  <td style="padding: 4px 0; text-align: right;">${returnDate}</td>
+                  <td style="padding: 4px 0; text-align: right; color: #0f172a;">${returnDate}</td>
                 </tr>
               </table>
             </div>
 
-            <div style="margin: 25px 0;">
-              <h3 style="color: #0f172a; font-size: 14px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">Terms & Conditions</h3>
-              <div style="background-color: #fdfdfd; border: 1px solid #f1f5f9; padding: 15px; border-radius: 8px; font-size: 12px; color: #64748b; max-height: 200px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap;">
-                ${agreementText || 'Standard vehicle rental terms apply. Please sign the contract to proceed with vehicle checkout.'}
+            <div style="margin: 24px 0;">
+              <h3 style="color: #0f172a; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.05em;">Terms & Conditions</h3>
+              <div style="background-color: #fafafa; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; font-size: 12px; color: #334155; max-height: 350px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; font-family: 'Inter', sans-serif;">
+                ${agreementText || 'Standard vehicle rental terms apply.'}
               </div>
             </div>
 
-            <p style="font-size: 13px; color: #64748b; line-height: 1.5;">
-              If you have any questions or require immediate support, reply to this email or contact customer service.
+            <div style="margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+              <div style="display: flex; gap: 20px;">
+                <div style="flex: 1; border-top: 1px dashed #cbd5e1; padding-top: 8px; text-align: center;">
+                  <p style="font-family: serif; font-style: italic; font-size: 16px; color: #1e3a8a; margin: 0 0 4px 0; font-weight: 600;">${customerName}</p>
+                  <p style="font-weight: 700; font-size: 11px; color: #475569; margin: 0;">Lessee Signature</p>
+                  <p style="font-size: 9px; color: #94a3b8; margin: 2px 0 0 0;">Digitally Logged & Verified</p>
+                </div>
+                <div style="flex: 1; border-top: 1px dashed #cbd5e1; padding-top: 8px; text-align: center;">
+                  <p style="font-size: 13px; color: #475569; margin: 0 0 4px 0; font-weight: 600;">Authorized Agent #SW-${reservationId.substring(0, 4).toUpperCase()}</p>
+                  <p style="font-weight: 700; font-size: 11px; color: #475569; margin: 0;">Authorized Officer Signature</p>
+                  <p style="font-size: 9px; color: #94a3b8; margin: 2px 0 0 0;">System logged on ${new Date().toLocaleDateString()}</p>
+                </div>
+              </div>
+            </div>
+
+            <p style="font-size: 13px; color: #475569; line-height: 1.5; margin-top: 24px; white-space: pre-line;">
+              ${signature || 'Best regards,\nThe Rent A.i. Team'}
             </p>
             
-            <div style="border-top: 1px solid #f1f5f9; padding-top: 15px; margin-top: 25px; text-align: center; font-size: 11px; color: #94a3b8;">
-              <p style="margin: 0;">This email was automatically dispatched by Fleet Rentals Management System.</p>
-              <p style="margin: 5px 0 0 0;">&copy; 2026 Fleet Rentals. All rights reserved.</p>
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 30px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+              <p style="margin: 0;">This agreement constitutes a binding digital lease contract between the lessee and ${businessInfo || 'Rent A.i.'}.</p>
+              <p style="margin: 8px 0 0 0;">&copy; 2026 ${businessInfo || 'Rent A.i.'}. All rights reserved.</p>
             </div>
           </div>
         `,

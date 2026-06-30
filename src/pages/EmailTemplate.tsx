@@ -72,7 +72,12 @@ export default function EmailTemplate() {
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setLogo(URL.createObjectURL(e.target.files[0]));
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogo(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -161,9 +166,72 @@ export default function EmailTemplate() {
             <p className="text-xs text-slate-500 mt-1">Available variables: {'{{customer_name}}'}, {'{{vehicle}}'}, {'{{pickup_date}}'}, {'{{return_date}}'}, {'{{total_cost}}'}</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Logo</label>
-            <input type="file" onChange={handleLogoUpload} className="w-full p-2 border border-slate-300 rounded-lg text-sm" />
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold text-slate-700">Company Logo Source</label>
+            
+            {/* Logo Preview box */}
+            <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              {logo ? (
+                <div className="relative">
+                  <img src={logo} alt="Logo Preview" className="h-12 max-w-[150px] object-contain border border-slate-200 rounded p-1 bg-white" />
+                  <button 
+                    type="button" 
+                    onClick={() => setLogo(null)} 
+                    className="absolute -top-2 -right-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div className="h-12 w-12 bg-slate-200 border border-slate-300 rounded flex items-center justify-center text-xs font-semibold text-slate-500">
+                  No Logo
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-semibold text-slate-500 block uppercase tracking-wider">Current Selection:</span>
+                <span className="text-xs text-slate-700 font-mono truncate block">
+                  {logo ? (logo.startsWith('data:') ? 'Uploaded Image (Base64)' : logo) : 'No logo selected (using placeholder)'}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick logo options */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setLogo('https://i.imgur.com/NMk2vsy.png')}
+                className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition text-center cursor-pointer ${logo === 'https://i.imgur.com/NMk2vsy.png' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+              >
+                Use Default Logo
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  const url = prompt('Enter image URL:', logo || '');
+                  if (url !== null) setLogo(url || null);
+                }}
+                className="px-2 py-1.5 rounded-lg text-xs font-bold border bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition text-center cursor-pointer"
+              >
+                Insert Link / URL
+              </button>
+              
+              <label className="px-2 py-1.5 rounded-lg text-xs font-bold border bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition cursor-pointer text-center block">
+                Upload File
+                <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+              </label>
+            </div>
+            
+            {/* Text input for manual URL check/entry */}
+            <div className="mt-1">
+              <input 
+                type="text"
+                placeholder="Or paste custom logo URL directly..."
+                value={logo && !logo.startsWith('data:') ? logo : ''}
+                onChange={(e) => setLogo(e.target.value || null)}
+                className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono"
+              />
+            </div>
           </div>
 
           <div>

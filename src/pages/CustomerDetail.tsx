@@ -41,16 +41,50 @@ export default function CustomerDetail() {
   }, [store.reservations, id]);
 
   const customerContracts = useMemo(() => {
-    return store.generatedContracts
-      .filter(c => c.customerId === id)
-      .sort((a, b) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        const finalA = isNaN(aTime) ? 0 : aTime;
-        const finalB = isNaN(bTime) ? 0 : bTime;
-        return finalB - finalA;
-      });
-  }, [store.generatedContracts, id]);
+    // Get explicitly generated contracts
+    const explicitContracts = store.generatedContracts.filter(c => c.customerId === id);
+    
+    // For each reservation of this customer, make sure a contract record is shown
+    const reservationContracts = reservations.map(res => {
+      const existing = explicitContracts.find(c => c.reservationId === res.id);
+      if (existing) return existing;
+      
+      const activeContractObj = store.contracts.find(c => c.status === 'Active');
+      return {
+        contractId: `auto-${res.id}`,
+        reservationId: res.id,
+        customerId: res.customerId,
+        vehicleId: res.vehicleId,
+        templateName: activeContractObj?.name || 'Standard Rental Agreement',
+        pdfUrl: '#',
+        createdAt: res.agreementSentDate || res.bookingDate || res.pickupDate || new Date().toISOString(),
+        status: 'GENERATED' as const
+      };
+    });
+
+    const merged: typeof store.generatedContracts = [];
+    const seenReservations = new Set<string>();
+    
+    explicitContracts.forEach(c => {
+      merged.push(c);
+      seenReservations.add(c.reservationId);
+    });
+    
+    reservationContracts.forEach(c => {
+      if (!seenReservations.has(c.reservationId)) {
+        merged.push(c);
+        seenReservations.add(c.reservationId);
+      }
+    });
+
+    return merged.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      const finalA = isNaN(aTime) ? 0 : aTime;
+      const finalB = isNaN(bTime) ? 0 : bTime;
+      return finalB - finalA;
+    });
+  }, [store.generatedContracts, id, reservations, store.contracts]);
 
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'payments' ? 'customer-payments' : 'contact';
@@ -653,14 +687,19 @@ export default function CustomerDetail() {
                 {customerContracts.map(contract => (
                   <tr 
                     key={contract.contractId}
-                    onClick={() => navigate(`/reservations/${contract.reservationId}`)}
+                    onClick={() => navigate(`/reservations/${contract.reservationId}?modal=agreement`)}
                     className="hover:bg-gray-50 cursor-pointer transition-colors"
                   >
                     <td className="px-6 py-4 font-medium text-gray-900">{contract.templateName}</td>
                     <td className="px-6 py-4 font-mono text-indigo-600 font-semibold">#{contract.reservationId.substring(0,8).toUpperCase()}</td>
                     <td className="px-6 py-4 text-gray-500">{formatDate(contract.createdAt, 'MMM d, yyyy')}</td>
                     <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                      <a href={contract.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:text-indigo-800">Download</a>
+                      <button 
+                        onClick={() => navigate(`/reservations/${contract.reservationId}?modal=agreement`)}
+                        className="text-indigo-600 font-bold hover:text-indigo-800 bg-transparent border-none p-0 cursor-pointer"
+                      >
+                        View & Print
+                      </button>
                     </td>
                   </tr>
                 ))}
