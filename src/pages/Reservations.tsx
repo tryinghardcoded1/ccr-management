@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { Plus, Search, Calendar, CheckSquare, Shield, Info, AlertTriangle, Printer, Trash2, Upload } from 'lucide-react';
+import { Plus, Search, Calendar, CheckSquare, Shield, Info, AlertTriangle, Printer, Trash2, Upload, Eye, Mail, Edit2 } from 'lucide-react';
 import { BulkImportModal } from '../components/BulkImportModal';
 
 export default function Reservations() {
@@ -10,18 +10,24 @@ export default function Reservations() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const newCustomerParam = searchParams.get('newCustomer');
 
-  const [activeFilterTab, setActiveFilterTab] = useState<'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Closed' | 'Cancelled' | 'Outstanding'>('Active');
+  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Closed' | 'Cancelled' | 'Outstanding'>('Closed');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [quickViewRes, setQuickViewRes] = useState<any>(null);
 
   // If newCustomer parameter was passed, pre-select and open builder
   useEffect(() => {
     if (newCustomerParam) {
       navigate(`/reservations/new?customerId=${newCustomerParam}`);
     }
-  }, [newCustomerParam, navigate]);
+    if (location.state && location.state.filter) {
+        setActiveFilterTab(location.state.filter === 'active' ? 'Active' : 'Outstanding');
+    }
+  }, [newCustomerParam, navigate, location.state]);
 
   // Filter calculations matching Image 3 tabs
   const filteredReservations = useMemo(() => {
@@ -33,16 +39,22 @@ export default function Reservations() {
       const customer = customers.find(c => c.id === res.customerId);
       const vehicle = vehicles.find(v => v.id === res.vehicleId);
       const cName = customer ? `${customer.firstName} ${customer.lastName}`.toLowerCase() : '';
+      const cEmail = customer ? customer.email.toLowerCase() : '';
       const vName = vehicle ? `${vehicle.make} ${vehicle.model}`.toLowerCase() : '';
+      const vPlate = vehicle ? vehicle.licensePlate.toLowerCase() : '';
       
       const matchesSearch = cName.includes(searchQuery.toLowerCase()) || 
+                            cEmail.includes(searchQuery.toLowerCase()) ||
                             vName.includes(searchQuery.toLowerCase()) ||
+                            vPlate.includes(searchQuery.toLowerCase()) ||
                             res.id.toLowerCase().includes(searchQuery.toLowerCase());
 
       if (!matchesSearch) return false;
 
       // Tab sub-filtering
       switch (activeFilterTab) {
+        case "All":
+          return true;
         case "Returns":
           return res.returnDate === todayStr && !res.vehicleReturned;
         case "TomorrowPickups":
@@ -69,10 +81,134 @@ export default function Reservations() {
   }, [reservations, customers, vehicles, searchQuery, activeFilterTab]);
 
   const sortedReservations = useMemo(() => {
-    return [...filteredReservations].sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
+    return [...filteredReservations].sort((a, b) => {
+      const aTime = a.pickupDate ? new Date(a.pickupDate).getTime() : 0;
+      const bTime = b.pickupDate ? new Date(b.pickupDate).getTime() : 0;
+      const finalA = isNaN(aTime) ? 0 : aTime;
+      const finalB = isNaN(bTime) ? 0 : bTime;
+      return finalB - finalA;
+    });
   }, [filteredReservations]);
 
-  // Aggregate columns total sums for footer row based on visible sorted list
+  const suggestions = useMemo(() => {
+    if (searchQuery.length < 1) return [];
+    const query = searchQuery.toLowerCase();
+    const suggestionsSet = new Set<string>();
+
+    customers.forEach(c => {
+      if (c.firstName.toLowerCase().includes(query)) suggestionsSet.add(`${c.firstName} ${c.lastName}`);
+      if (c.lastName.toLowerCase().includes(query)) suggestionsSet.add(`${c.firstName} ${c.lastName}`);
+      if (c.email.toLowerCase().includes(query)) suggestionsSet.add(c.email);
+    });
+    vehicles.forEach(v => {
+      if (v.licensePlate.toLowerCase().includes(query)) suggestionsSet.add(v.licensePlate);
+      if (v.make.toLowerCase().includes(query)) suggestionsSet.add(`${v.make} ${v.model}`);
+    });
+
+    return Array.from(suggestionsSet).slice(0, 5);
+  }, [searchQuery, customers, vehicles]);
+
+  const isGroupedTab = ['Completed', 'Closed', 'Cancelled'].includes(activeFilterTab);
+
+  const groupedReservations = useMemo(() => {
+    if (!isGroupedTab) return null;
+    const groups = new Map<string, typeof sortedReservations>();
+    sortedReservations.forEach(res => {
+      if (!groups.has(res.customerId)) groups.set(res.customerId, []);
+      groups.get(res.customerId)!.push(res);
+    });
+    return groups;
+  }, [isGroupedTab, sortedReservations]);
+
+  const toggleGroup = (customerId: string) => {
+    const next = new Set(expandedGroups);
+    if (next.has(customerId)) next.delete(customerId);
+    else next.add(customerId);
+    setExpandedGroups(next);
+  };
+
+  const renderRow = (res: any) => {
+    const c = customers.find(cust => cust.id === res.customerId);
+    const v = vehicles.find(veh => veh.id === res.vehicleId);
+    const paidAmt = res.totalAmount - res.balance;
+    const displayNum = `RES-${res.id.substring(0, 5).toUpperCase()}`;
+
+    return (
+        <tr key={res.id} className="hover:bg-gray-50 transition-colors">
+        <td className="px-4 py-4 w-4">
+            <input 
+            type="checkbox" 
+            className="rounded border-gray-300 cursor-pointer" 
+            checked={selectedIds.has(res.id)}
+            onChange={() => toggleSelection(res.id)}
+            />
+        </td>
+        <td className="px-4 py-4 text-center">
+          <button onClick={() => setQuickViewRes(res)} className="text-gray-400 hover:text-indigo-600">
+            <Info className="w-4 h-4" />
+          </button>
+        </td>
+        {/* 1. THE NUMBER */}
+        <td className="px-4 py-4 font-bold text-blue-600">
+            <Link to={`/reservations/${res.id}`} className="hover:underline">
+            {displayNum}
+            </Link>
+        </td>
+        {/* 2. RESERVATION STATUS */}
+        <td className="px-4 py-4 font-medium">
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border
+            ${res.status === 'Completed' ? 'bg-green-50 text-green-800 border-green-200' : 
+                res.status === 'Closed' ? 'bg-purple-50 text-purple-800 border-purple-200' :
+                res.status === 'Checked Out' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                res.status === 'Checked In' ? 'bg-teal-50 text-teal-800 border-teal-200' :
+                res.status === 'Confirmed' ? 'bg-indigo-50 text-indigo-800 border-indigo-200' :
+                res.status === 'Cancelled' ? 'bg-red-50 text-red-850 border-red-250' : 'bg-gray-100 text-gray-800 border-gray-200'}`}
+            >
+            {res.status}
+            </span>
+        </td>
+        {/* Deposit Status */}
+        <td className="px-4 py-4">
+            {res.status === 'Completed' ? (
+            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border
+                ${res.securityDepositStatus === 'On Hold' ? 'bg-red-50 text-red-600 border-red-250 font-bold' :
+                res.securityDepositStatus === 'Refunded' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                res.securityDepositStatus === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                res.securityDepositStatus === 'Pending' ? 'bg-yellow-50 text-yellow-850 border-yellow-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
+            >
+                {res.securityDepositStatus}
+            </span>
+            ) : null}
+        </td>
+        {/* 3. CUSTOMER NAME */}
+        <td className="px-4 py-4 font-bold">
+            {c ? (
+            <Link to={`/reservations/${res.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                {c.firstName} {c.lastName}
+            </Link>
+            ) : (
+            <span className="text-gray-450">Deleted</span>
+            )}
+        </td>
+        {/* 8. PAID */}
+        <td className="px-4 py-4 text-right font-black text-emerald-600 text-sm">
+            ${paidAmt.toFixed(2)}
+        </td>
+        {/* 10. BALANCE */}
+        <td className={`px-4 py-4 text-right font-black text-sm ${res.balance > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+            ${res.balance.toFixed(2)}
+        </td>
+        {/* 11. QUICK ACTIONS */}
+        <td className="px-4 py-4 text-center">
+            <div className="flex justify-center gap-2">
+                <Link to={`/reservations/${res.id}`} title="View Details" className="text-gray-400 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
+                <button title="Send Email" className="text-gray-400 hover:text-indigo-600"><Mail className="w-4 h-4" /></button>
+                <Link to={`/reservations/${res.id}/edit`} title="Edit" className="text-gray-400 hover:text-indigo-600"><Edit2 className="w-4 h-4" /></Link>
+            </div>
+        </td>
+        </tr>
+    );
+  };
   const sumTotals = useMemo(() => {
     let price = 0;
     let paid = 0;
@@ -88,6 +224,7 @@ export default function Reservations() {
   }, [sortedReservations]);
 
   const filterTabs = [
+    { id: 'All', label: 'All' },
     { id: 'Active', label: 'Active Bookings' },
     { id: 'Returns', label: "Today's Returns" },
     { id: 'TomorrowPickups', label: "Tomorrow's Pickups" },
@@ -193,16 +330,30 @@ export default function Reservations() {
       </div>
 
       {/* Search and Filters Match Image 3 */}
-      <div className="flex flex-wrap gap-4 items-center justify-between bg-white p-3 border border-gray-150 rounded-xl shadow-xs">
-        <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-1.5 bg-gray-50 w-full max-w-sm">
+      <div className="flex flex-wrap gap-4 items-center justify-between bg-white p-3 border border-gray-150 rounded-xl shadow-xs relative">
+        <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-1.5 bg-gray-50 w-full max-w-sm relative">
           <Search className="w-4 h-4 text-gray-400" />
           <input 
             type="text" 
-            placeholder="Start typing a name..." 
+            placeholder="Search by name, email, or license..." 
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="bg-transparent border-none outline-none text-xs w-full placeholder-gray-450 text-gray-700"
           />
+          {/* Suggestions Dropdown */}
+          {searchQuery.length >= 1 && suggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs text-gray-700"
+                  onClick={() => setSearchQuery(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -230,119 +381,39 @@ export default function Reservations() {
                     onChange={toggleAll}
                   />
                 </th>
-                <th className="px-4 py-3 text-center">Number</th>
+                <th className="px-4 py-3 w-4"></th>
+                <th className="px-4 py-3">Number</th>
                 <th className="px-4 py-3">Reservation Status</th>
+                <th className="px-4 py-3">Deposit Status</th>
                 <th className="px-4 py-3">Customer Name</th>
-                <th className="px-4 py-3">Pick Up</th>
-                <th className="px-4 py-3">Return</th>
-                <th className="px-4 py-3">Vehicle Type</th>
-                <th className="px-4 py-3">Vehicle Price</th>
                 <th className="px-4 py-3 text-right font-bold">Paid</th>
-                <th className="px-4 py-3 text-center">Deposit Status</th>
                 <th className="px-4 py-3 text-right font-bold">Balance</th>
+                <th className="px-4 py-3 text-center">Quick Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-150">
-              {sortedReservations.map((res, index) => {
-                const c = customers.find(cust => cust.id === res.customerId);
-                const v = vehicles.find(veh => veh.id === res.vehicleId);
-                const paidAmt = res.totalAmount - res.balance;
-                
-                const displayNum = `RES-${res.id.substring(0, 5).toUpperCase()}`;
-
-                return (
-                  <tr key={res.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4 w-4">
-                      <input 
-                        type="checkbox" 
-                        className="rounded border-gray-300 cursor-pointer" 
-                        checked={selectedIds.has(res.id)}
-                        onChange={() => toggleSelection(res.id)}
-                      />
-                    </td>
-                    {/* 1. THE NUMBER */}
-                    <td className="px-4 py-4 font-bold text-blue-600 text-center">
-                      <Link to={`/reservations/${res.id}`} className="hover:underline">
-                        {displayNum}
-                      </Link>
-                    </td>
-                    {/* 2. RESERVATION STATUS */}
-                    <td className="px-4 py-4 font-medium">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border
-                        ${res.status === 'Completed' ? 'bg-green-50 text-green-800 border-green-200' : 
-                          res.status === 'Closed' ? 'bg-purple-50 text-purple-800 border-purple-200' :
-                          res.status === 'Checked Out' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                          res.status === 'Checked In' ? 'bg-teal-50 text-teal-800 border-teal-200' :
-                          res.status === 'Confirmed' ? 'bg-indigo-50 text-indigo-800 border-indigo-200' :
-                          res.status === 'Cancelled' ? 'bg-red-50 text-red-850 border-red-250' : 'bg-gray-100 text-gray-800 border-gray-200'}`}
-                      >
-                        {res.status}
-                      </span>
-                    </td>
-                    {/* 3. CUSTOMER NAME */}
-                    <td className="px-4 py-4 font-bold">
-                      {c ? (
-                        <Link to={`/reservations/${res.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
-                          {c.firstName} {c.lastName}
-                        </Link>
-                      ) : (
-                        <span className="text-gray-450">Deleted</span>
-                      )}
-                    </td>
-                    {/* 4. PICK UP */}
-                    <td className="px-4 py-4 text-gray-700">
-                      <div className="font-semibold">{res.pickupDate}</div>
-                      <div className="text-[10px] text-gray-450">{res.pickupTime}</div>
-                    </td>
-                    {/* 5. RETURN */}
-                    <td className="px-4 py-4 text-gray-700">
-                      <div className="font-semibold">{res.returnDate}</div>
-                      <div className="text-[10px] text-gray-450">{res.returnTime}</div>
-                    </td>
-                    {/* 6. VEHICLE TYPE */}
-                    <td className="px-4 py-4 text-gray-600 font-medium">
-                      {v ? (
-                        <div>
-                          <div className="font-semibold text-gray-800">{v.category.toUpperCase()}</div>
-                          <div className="text-[10.5px] text-gray-450">{v.make} {v.model} ({v.year})</div>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">Class/Unassigned</span>
-                      )}
-                    </td>
-                    {/* 7. VEHICLE PRICE */}
-                    <td className="px-4 py-4 text-gray-900 font-semibold">
-                      {v ? (
-                        <div>
-                          <div>${v.dailyRate.toFixed(2)}</div>
-                          <div className="text-[10px] text-gray-450 font-normal">/ day</div>
-                        </div>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    {/* 8. PAID */}
-                    <td className="px-4 py-4 text-right font-black text-emerald-600 text-sm">
-                      ${paidAmt.toFixed(2)}
-                    </td>
-                    {/* 9. DEPOSIT STATUS */}
-                    <td className="px-4 py-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border
-                        ${res.securityDepositStatus === 'On Hold' ? 'bg-orange-50 text-orange-850 border-orange-250 font-bold' :
-                          res.securityDepositStatus === 'Refunded' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                          res.securityDepositStatus === 'Completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                          res.securityDepositStatus === 'Pending' ? 'bg-yellow-50 text-yellow-850 border-yellow-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
-                      >
-                        {res.securityDepositStatus}
-                      </span>
-                    </td>
-                    {/* 10. BALANCE */}
-                    <td className={`px-4 py-4 text-right font-black text-sm ${res.balance > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      ${res.balance.toFixed(2)}
-                    </td>
-                  </tr>
-                );
-              })}
+              {isGroupedTab && groupedReservations ? (
+                Array.from(groupedReservations.entries()).map(([customerId, resList]) => {
+                  const customer = customers.find(c => c.id === customerId);
+                  const isExpanded = expandedGroups.has(customerId);
+                  return (
+                    <React.Fragment key={customerId}>
+                      <tr className="bg-gray-100 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => toggleGroup(customerId)}>
+                        <td colSpan={13} className="px-4 py-3 font-bold text-gray-950 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span>{isExpanded ? '▼' : '▶'}</span>
+                            <span>{customer ? `${customer.firstName} ${customer.lastName}` : 'Unknown Customer'}</span>
+                            <span className="text-gray-500 font-normal">({resList.length} Reservations)</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {isExpanded && resList.map(res => renderRow(res))}
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                sortedReservations.map(res => renderRow(res))
+              )}
 
               {sortedReservations.length === 0 && (
                 <tr>
@@ -353,10 +424,10 @@ export default function Reservations() {
               {/* Aggregations footer summary row matching columns layout */}
               {sortedReservations.length > 0 && (
                 <tr className="bg-[#f1f5f9] font-black text-gray-950 text-right text-xs">
-                  <td colSpan={8} className="px-4 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-gray-650">Total Summaries</td>
+                  <td colSpan={6} className="px-4 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-gray-650">Total Summaries</td>
                   <td className="px-4 py-3 font-extrabold text-green-700">${sumTotals.paid.toFixed(2)}</td>
-                  <td className="px-4 py-3"></td>
                   <td className={`px-4 py-3 font-extrabold ${sumTotals.balance > 0 ? 'text-red-700' : 'text-gray-900'}`}>${sumTotals.balance.toFixed(2)}</td>
+                  <td></td>
                 </tr>
               )}
             </tbody>

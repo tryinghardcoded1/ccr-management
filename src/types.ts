@@ -86,6 +86,9 @@ export interface Reservation {
   securityDepositRefundDate?: string;
   securityDepositRefunded: boolean;
   includeDepositInTotal?: boolean;
+  agreementStatus?: 'Pending' | 'Signed';
+  agreementSentDate?: string;
+  agreementSignedDate?: string;
 }
 
 export interface Payment {
@@ -156,4 +159,15 @@ export interface GeneratedContract {
   pdfUrl: string;
   createdAt: string;
   status: 'GENERATED';
+}
+
+export interface EmailTemplateConfig {
+  id: string;
+  name: string;
+  isActive: boolean;
+  businessInfo: string;
+  signature: string;
+  customMessage: string;
+  logo: string | null;
+  templateType: string;
 }

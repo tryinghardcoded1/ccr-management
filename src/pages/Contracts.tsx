@@ -35,9 +35,23 @@ export default function Contracts() {
   // Stats calculation
   const activeContract = contracts.find(c => c.status === 'Active');
   const totalContracts = contracts.length;
-  const lastUpdated = contracts.length > 0
-    ? new Date(Math.max(...contracts.map(c => new Date(c.uploadedAt).getTime())))
+  const validTimestamps = contracts
+    .map(c => c.uploadedAt ? new Date(c.uploadedAt).getTime() : 0)
+    .filter(t => !isNaN(t) && t > 0);
+  const lastUpdated = validTimestamps.length > 0
+    ? new Date(Math.max(...validTimestamps))
     : null;
+
+  const formatSafeDate = (dateStr: any, type: 'date' | 'dateTime' = 'date') => {
+    try {
+      if (!dateStr) return 'N/A';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr);
+      return type === 'date' ? d.toLocaleDateString() : d.toLocaleString();
+    } catch (e) {
+      return String(dateStr || 'N/A');
+    }
+  };
 
   // Handle Drag over & leave
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
@@ -233,7 +247,7 @@ Refund holds or authorization flags are released within 7 banking days post clea
           <div>
             <p className="text-xs font-bold text-slate-405 uppercase tracking-wider">Registry Sync State</p>
             <p className="text-sm font-black text-slate-900">
-              {lastUpdated ? lastUpdated.toLocaleDateString() : 'N/A'}
+              {lastUpdated && !isNaN(lastUpdated.getTime()) ? lastUpdated.toLocaleDateString() : 'N/A'}
             </p>
             <p className="text-[10px] text-amber-600 font-bold uppercase mt-0.5">Real-time Connected</p>
           </div>
@@ -475,7 +489,7 @@ Refund holds or authorization flags are released within 7 banking days post clea
                             <p className="text-xs text-slate-500 mt-1 font-medium">{contract.type}</p>
                             
                             <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-2 font-mono flex-wrap">
-                              <span>Uploaded: {new Date(contract.uploadedAt).toLocaleDateString()}</span>
+                              <span>Uploaded: {formatSafeDate(contract.uploadedAt, 'date')}</span>
                               <span className="hidden sm:inline">•</span>
                               <span>Staff: {contract.uploadedBy}</span>
                               {contract.fileName && (
@@ -575,7 +589,7 @@ Refund holds or authorization flags are released within 7 banking days post clea
 
               <div className="p-4 border-t border-slate-100 bg-white flex items-center justify-between">
                 <div className="text-[10px] text-slate-400 font-medium">
-                  Author: <span className="font-bold">{viewingContract.uploadedBy}</span> • Updated: {new Date(viewingContract.uploadedAt).toLocaleString()}
+                  Author: <span className="font-bold">{viewingContract.uploadedBy}</span> • Updated: {formatSafeDate(viewingContract.uploadedAt, 'dateTime')}
                 </div>
                 {viewingContract.status === 'Inactive' ? (
                   <button

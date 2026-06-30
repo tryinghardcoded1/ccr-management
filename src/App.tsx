@@ -22,6 +22,7 @@ import Archive from './pages/Archive';
 import SystemUsers from './pages/SystemUsers';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Contracts from './pages/Contracts';
+import EmailTemplate from './pages/EmailTemplate';
 
 import NewReservationPage from './pages/NewReservationPage';
 import CustomerVoicePortal from './pages/CustomerVoicePortal';
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="archive" element={<Archive />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="contracts" element={<Contracts />} />
+          <Route path="email-template" element={<EmailTemplate />} />
         </Route>
         <Route path="/portal" element={<CustomerVoicePortal />} />
       </Routes>

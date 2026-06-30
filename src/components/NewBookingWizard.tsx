@@ -35,9 +35,10 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
 
   // Submit states and Checkout config
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [wizardStatus, setWizardStatus] = useState<'Checked Out' | 'Pending'>('Checked Out');
+  const [wizardStatus, setWizardStatus] = useState<'Checked In' | 'Pending'>('Checked In');
   const [wizardPaymentMethod, setWizardPaymentMethod] = useState('Credit Card');
   const [wizardHoldUntil, setWizardHoldUntil] = useState('');
+  const [sendEmailConfirmation, setSendEmailConfirmation] = useState(true);
 
   useEffect(() => {
     try {
@@ -69,15 +70,33 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
   const [error, setError] = useState('');
 
   // Computations
-  const days = Math.max(1, differenceInDays(parseISO(returnDate), parseISO(pickupDate)));
+  const days = useMemo(() => {
+    try {
+      const start = parseISO(pickupDate);
+      const end = parseISO(returnDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return 1;
+      const d = differenceInDays(end, start);
+      return isNaN(d) || d < 1 ? 1 : d;
+    } catch (e) {
+      return 1;
+    }
+  }, [pickupDate, returnDate]);
   
   const selectedVehicle = store.vehicles.find(v => v.id === vehicleId);
-  const baseRental = selectedVehicle ? selectedVehicle.dailyRate * days : 0;
+  const baseRental = useMemo(() => {
+    if (!selectedVehicle) return 0;
+    const rate = Number(selectedVehicle.dailyRate);
+    return isNaN(rate) ? 0 : rate * days;
+  }, [selectedVehicle, days]);
   
   const selectedCharges = store.chargeTemplates.filter(t => selectedChargeTemplateIds.includes(t.id));
-  const totalCharges = selectedCharges.reduce((sum, charge) => {
-    return sum + (charge.perDay ? charge.rate * days : charge.rate);
-  }, 0);
+  const totalCharges = useMemo(() => {
+    return selectedCharges.reduce((sum, charge) => {
+      const rate = Number(charge.rate);
+      if (isNaN(rate)) return sum;
+      return sum + (charge.perDay ? rate * days : rate);
+    }, 0);
+  }, [selectedCharges, days]);
   
   const totalAmount = baseRental + totalCharges;
   
@@ -202,10 +221,10 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
         status: wizardStatus,
         notes: '',
         securityDepositAmount: wizardSecurityDeposit,
-        includeDepositInTotal: includeDepositInTotal,
+        includeDepositInTotal: false,
         paymentMethod: wizardPaymentMethod,
         securityDepositHoldUntil: wizardHoldUntil,
-      }, selectedChargeTemplateIds);
+      }, selectedChargeTemplateIds, { sendEmail: sendEmailConfirmation });
 
       if (!embedded) {
         onClose();
@@ -317,9 +336,9 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                         <div 
                           key={v.id} 
                           onClick={() => {
-                            if (isAvailable) setVehicleId(v.id);
+                            setVehicleId(v.id);
                           }}
-                          className={`border rounded-md p-3 transition-colors duration-150 ${isAvailable ? 'cursor-pointer hover:bg-zinc-50 border-zinc-200' : 'cursor-not-allowed opacity-50 bg-zinc-50 border-zinc-100'} ${vehicleId === v.id ? 'border-blue-600 bg-blue-50 shadow-inner' : ''}`}
+                          className={`border rounded-md p-3 transition-colors duration-150 cursor-pointer hover:bg-zinc-50 border-zinc-200 ${vehicleId === v.id ? 'border-blue-600 bg-blue-50 shadow-inner' : ''}`}
                         >
                           <div className="flex gap-3">
                             <div className="mt-1 w-4 h-4 rounded-full border border-zinc-300 flex items-center justify-center shrink-0">
@@ -330,8 +349,8 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                               <div className="text-[11px] text-zinc-500 font-mono mt-0.5">{v.licensePlate} • {v.category.toUpperCase()}</div>
                               <div className="text-zinc-500 text-[11px] mt-1 line-clamp-1"><Flag className="w-3 h-3 inline text-green-600 mb-0.5"/> {v.status}</div>
                               {!isAvailable && (
-                                <div className="text-[10px] text-red-500 mt-1 font-semibold uppercase tracking-wider">
-                                  {v.status === 'Maintenance' || v.status === 'Repair' ? 'Under Maintenance/Repair' : 'Reserved for dates'}
+                                <div className="text-[10px] text-amber-600 mt-1 font-semibold uppercase tracking-wider">
+                                  ⚠️ {v.status === 'Maintenance' || v.status === 'Repair' ? 'Under Maintenance/Repair (Selectable)' : 'Reserved for dates (Selectable)'}
                                 </div>
                               )}
                             </div>
@@ -678,12 +697,12 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                                 <input 
                                    type="radio"
                                    name="wizardStatus"
-                                   value="Checked Out"
-                                   checked={wizardStatus === 'Checked Out'}
-                                   onChange={() => setWizardStatus('Checked Out')}
+                                   value="Checked In"
+                                   checked={wizardStatus === 'Checked In'}
+                                   onChange={() => setWizardStatus('Checked In')}
                                    className="w-4 h-4 text-blue-600 border-zinc-300 focus:ring-blue-500"
                                 />
-                                Pay &amp; Check Out Now
+                                Pay &amp; Check In Now
                              </label>
                              <label className="flex items-center gap-2 text-sm text-zinc-800 font-semibold cursor-pointer">
                                 <input 
@@ -736,7 +755,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                        <div className="bg-blue-100/50 text-blue-800 rounded-lg p-3 text-xs flex gap-2 items-start mt-2">
                           <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                           <p className="leading-normal">
-                             <strong>Immediate Payment Integration:</strong> Creating this booking in Checked Out status will record an Initial Rental Payment of <strong>${(totalAmount + (includeDepositInTotal ? wizardSecurityDeposit : 0)).toFixed(2)}</strong> so the Outstanding Balance is instantly <strong>$0.00</strong>. The vehicle will instantly shift to <strong>Rented</strong>.
+                             <strong>Immediate Payment Integration:</strong> Creating this booking in Checked In status will record an Initial Rental Payment of <strong>${totalAmount.toFixed(2)}</strong> so the Outstanding Balance is instantly <strong>$0.00</strong>. The vehicle will remain Available until Checked Out manually.
                           </p>
                        </div>
                     )}
@@ -769,18 +788,6 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                       
                       {/* Security Deposit Selection */}
                       <div className="mb-4 p-3 bg-white border border-zinc-200 rounded-lg space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer uppercase tracking-wider">
-                            <input 
-                              type="checkbox" 
-                              className="w-4 h-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-                              checked={includeDepositInTotal}
-                              onChange={e => setIncludeDepositInTotal(e.target.checked)}
-                            />
-                            Add Security Deposit to Grand Total
-                          </label>
-                        </div>
-                        
                         <div>
                           <label className="block text-[11px] font-semibold text-zinc-500 mb-1">Security Deposit Amount ($)</label>
                           <input 
@@ -795,7 +802,7 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
 
                       <div className="text-sm space-y-3">
                          <div className="flex justify-between border-b border-zinc-100 pb-2">
-                           <span className="text-zinc-500 font-medium">Base Rental:</span>
+                           <span className="text-zinc-500 font-medium">Rental Fee (Base):</span>
                            <span className="font-bold text-zinc-800">${baseRental.toFixed(2)}</span>
                          </div>
                          {selectedCharges.map(c => (
@@ -804,19 +811,37 @@ export default function NewBookingWizard({ onClose, embedded = false }: NewBooki
                              <span className="font-semibold text-zinc-800">${(c.perDay ? c.rate * days : c.rate).toFixed(2)}</span>
                            </div>
                          ))}
-                         {includeDepositInTotal && (
-                           <div className="flex justify-between border-b border-zinc-100 pb-2 text-zinc-800">
-                             <span className="text-zinc-500">Security Deposit:</span>
-                             <span className="font-semibold text-zinc-800">${wizardSecurityDeposit.toFixed(2)}</span>
+                         <div className="flex justify-between pt-1 text-zinc-800 font-bold border-t border-zinc-100">
+                           <span className="uppercase tracking-wide text-xs">Subtotal (Actual Charges):</span>
+                           <span className="text-sm">${totalAmount.toFixed(2)}</span>
+                         </div>
+                         {wizardSecurityDeposit > 0 && (
+                           <div className="flex justify-between text-zinc-600 font-medium">
+                             <span className="text-xs">Security Deposit (Refundable):</span>
+                             <span className="font-bold text-zinc-800">${wizardSecurityDeposit.toFixed(2)}</span>
                            </div>
                          )}
-                         <div className="flex justify-between pt-3 text-lg mt-2 font-bold text-blue-700">
-                           <span className="uppercase tracking-wide text-sm flex items-center">Grand Total:</span>
-                           <span className="text-2xl">${(totalAmount + (includeDepositInTotal ? wizardSecurityDeposit : 0)).toFixed(2)}</span>
+                         <div className="flex justify-between pt-3 text-lg mt-2 font-bold text-blue-700 border-t border-zinc-200">
+                           <span className="uppercase tracking-wide text-sm flex items-center">Total Amount to Collect:</span>
+                           <span className="text-2xl">${(totalAmount + (wizardSecurityDeposit || 0)).toFixed(2)}</span>
                          </div>
                       </div>
                     </div>
                  </div>
+              </div>
+            )}
+
+            {step === 4 && (
+              <div className="mt-4">
+                <label className="flex items-center gap-2 cursor-pointer bg-blue-50 hover:bg-blue-100 transition p-3 rounded-lg border border-blue-200 w-fit">
+                  <input 
+                    type="checkbox" 
+                    checked={sendEmailConfirmation} 
+                    onChange={e => setSendEmailConfirmation(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                  />
+                  <span className="text-sm font-semibold text-blue-900">Send Booking Confirmation Email Automatically</span>
+                </label>
               </div>
             )}
 

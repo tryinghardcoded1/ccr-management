@@ -6,6 +6,17 @@ export default function Archive() {
   const { archivedCustomers, archivedVehicles, archivedReservations, archivedChargeTemplates } = useStore();
   const [activeTab, setActiveTab] = useState<'Customers' | 'Vehicles' | 'Reservations' | 'Charge Templates'>('Customers');
 
+  const formatDate = (dateStr: any) => {
+    try {
+      if (!dateStr) return 'N/A';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr);
+      return d.toLocaleDateString();
+    } catch (e) {
+      return String(dateStr || 'N/A');
+    }
+  };
+
   const tabs = [
     { id: 'Customers', icon: Users, count: archivedCustomers.length },
     { id: 'Vehicles', icon: Car, count: archivedVehicles.length },
@@ -119,8 +130,8 @@ export default function Archive() {
                 {archivedReservations.map(r => (
                   <tr key={r.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 text-slate-500 font-mono text-xs">{r.id.split('-')[0]}</td>
-                    <td className="px-6 py-4 text-slate-500">{new Date(r.pickupDate).toLocaleDateString()}</td>
-                    <td className="px-6 py-4 text-slate-500">{new Date(r.returnDate).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 text-slate-500">{formatDate(r.pickupDate)}</td>
+                    <td className="px-6 py-4 text-slate-500">{formatDate(r.returnDate)}</td>
                     <td className="px-6 py-4 font-bold text-slate-700">{r.status}</td>
                   </tr>
                 ))}

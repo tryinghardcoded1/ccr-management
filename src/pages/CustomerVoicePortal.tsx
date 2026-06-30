@@ -44,17 +44,12 @@ export default function CustomerVoicePortal() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusText, setStatusText] = useState("Tap 'Start Call' to talk with receptionist");
 
-  // Web audio & websockets
-  const wsRef = useRef<WebSocket | null>(null);
-  const inputAudioCtxRef = useRef<AudioContext | null>(null);
-  const outputAudioCtxRef = useRef<AudioContext | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
-  const nextStartTimeRef = useRef<number>(0);
-
   // BroadcastChannel for in-memory sync
   const channelRef = useRef<BroadcastChannel | null>(null);
+
+  // ... Speech synthesis and recognition refs ...
+  const recognitionRef = useRef<any>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
 
   useEffect(() => {
     // Setup local broadcast channel
@@ -63,6 +58,16 @@ export default function CustomerVoicePortal() {
     // Log initial status
     addLog(`Initialized page: running in ${isFirebaseActive ? "Firestore Cloud" : "Local Demo (BroadcastChannel)"} Mode.`);
     
+    // Speech synthesis setup
+    synthRef.current = window.speechSynthesis;
+    
+    // Load voices
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = () => {
+        addLog("Speech Synthesis voices loaded.");
+      };
+    }
+
     return () => {
       cleanupAudio();
       if (channelRef.current) {
@@ -113,55 +118,69 @@ export default function CustomerVoicePortal() {
 
   const startConnection = async () => {
     if (isConnected) return;
+    
+    // Prime Speech Synthesis by playing an empty utterance on user gesture.
+    if (synthRef.current) {
+        const dummy = new SpeechSynthesisUtterance("");
+        dummy.volume = 0;
+        synthRef.current.speak(dummy);
+    }
+    
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      addLog("Speech Recognition API not supported in this browser.");
+      setStatusText("Browser not supported");
+      return;
+    }
+
     setIsLoading(true);
     setStatusText("Connecting to elite voice receptionist...");
     addLog("Requesting microphone permission...");
 
     try {
-      // 1. Get mic permission
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      setMicActive(true);
-
-      // 2. Setup AudioContexts
-      inputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      outputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      nextStartTimeRef.current = 0;
-
-      // 3. Establish WebSocket connection to backend proxy
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/api/live`;
+      // Explicitly request microphone permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      addLog(`Connecting phone agent stream at: ${wsUrl}`);
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'en-US';
+      recognitionRef.current = recognition;
 
-      ws.onopen = () => {
-        addLog("Voice agency link online. Starting stream...");
+      recognition.onstart = () => {
         setIsConnected(true);
         setIsLoading(false);
+        setMicActive(true);
         setStatusText("Connected. Receptionist is listening...");
-
-        // Start processing mic data
-        startMicProcessing();
+        addLog("Voice agency link online. Starting stream...");
       };
 
-      ws.onmessage = async (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          
-          if (msg.audio) {
-            playAudioChunk(msg.audio);
-          }
-          
-          if (msg.interrupted) {
-            addLog("AI interrupted. Stopping audio queue...");
-            stopAllAudioPlayback();
-          }
+      recognition.onresult = async (event: any) => {
+        const userText = event.results[0][0].transcript;
+        addLog(`You said: "${userText}"`);
+        setStatusText("Processing...");
 
-          if (msg.calculation) {
-            const { customer_name, car_type, duration_days, additional_fee, new_total, action } = msg.calculation;
+        try {
+          // Send to Gemini via our REST endpoint
+          const sessionState = {
+            customer_name: customerName,
+            car_type: carType,
+            duration_days: duration,
+            total: newTotal
+          };
+
+          const res = await fetch("/api/voice-agent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: userText, sessionState })
+          });
+          const data = await res.json();
+          
+          if (data.error) throw new Error(data.error);
+
+          const { speech, calculation } = data;
+
+          if (calculation) {
+            const { customer_name, car_type, duration_days, additional_fee, new_total, action } = calculation;
             setCustomerName(customer_name || "");
             setCarType(car_type || "");
             setDuration(duration_days || 0);
@@ -169,7 +188,6 @@ export default function CustomerVoicePortal() {
             setNewTotal(new_total || 0);
             addLog(`Dynamic Fee calculated! Additional: $${additional_fee}, Total: $${new_total}`);
 
-            // Automatically trigger sync update to desktop dashboard
             await syncToDesktop({
               customerName: customer_name,
               carType: car_type,
@@ -179,21 +197,54 @@ export default function CustomerVoicePortal() {
               action: action || "book"
             });
           }
-        } catch (e) {
-          console.error("Error processing websocket message", e);
+
+          // Output speech via Web Speech API
+          if (speech && synthRef.current) {
+            addLog(`Receptionist: "${speech}"`);
+            synthRef.current.cancel(); // Cancel previous
+            
+            const utterance = new SpeechSynthesisUtterance(speech);
+            utterance.rate = 1.0;
+            
+            // Default to a professional voice if available
+            const voices = synthRef.current.getVoices();
+            if (voices.length > 0) {
+              const engVoices = voices.filter(v => v.lang.startsWith("en-"));
+              if (engVoices.length > 0) {
+                 utterance.voice = engVoices[0];
+              }
+            }
+
+            utterance.onstart = () => {
+              setStatusText("Receptionist is speaking...");
+            };
+            utterance.onend = () => {
+              setStatusText("Tap 'Start Phone Call' to speak again.");
+              handleDisconnect();
+            };
+
+            synthRef.current.speak(utterance);
+          } else {
+            handleDisconnect();
+          }
+
+        } catch (err: any) {
+           addLog(`Error processing: ${err.message}`);
+           handleDisconnect();
         }
       };
 
-      ws.onclose = () => {
-        addLog("Voice agency link disconnected.");
+      recognition.onerror = (event: any) => {
+        addLog(`Speech recognition error: ${event.error}`);
         handleDisconnect();
       };
 
-      ws.onerror = (err) => {
-        addLog("Websocket connection error.");
-        console.error(err);
-        handleDisconnect();
+      recognition.onend = () => {
+        // Recognition stops after one session
+        setMicActive(false);
       };
+
+      recognition.start();
 
     } catch (err: any) {
       addLog(`Error connecting: ${err.message || err}`);
@@ -214,134 +265,13 @@ export default function CustomerVoicePortal() {
 
   const cleanupAudio = () => {
     try {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (recognitionRef.current) {
+         recognitionRef.current.abort();
+      }
+      if (synthRef.current) {
+         synthRef.current.cancel();
       }
     } catch (_) {}
-
-    try {
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach(t => t.stop());
-        micStreamRef.current = null;
-      }
-    } catch (_) {}
-
-    try {
-      if (scriptProcessorRef.current) {
-        scriptProcessorRef.current.disconnect();
-        scriptProcessorRef.current = null;
-      }
-    } catch (_) {}
-
-    try {
-      if (inputAudioCtxRef.current) {
-        inputAudioCtxRef.current.close();
-        inputAudioCtxRef.current = null;
-      }
-    } catch (_) {}
-
-    stopAllAudioPlayback();
-    try {
-      if (outputAudioCtxRef.current) {
-        outputAudioCtxRef.current.close();
-        outputAudioCtxRef.current = null;
-      }
-    } catch (_) {}
-  };
-
-  const startMicProcessing = () => {
-    if (!inputAudioCtxRef.current || !micStreamRef.current) return;
-    
-    const source = inputAudioCtxRef.current.createMediaStreamSource(micStreamRef.current);
-    const processor = inputAudioCtxRef.current.createScriptProcessor(4096, 1, 1);
-    scriptProcessorRef.current = processor;
-
-    source.connect(processor);
-    processor.connect(inputAudioCtxRef.current.destination);
-
-    processor.onaudioprocess = (e) => {
-      if (!isConnected || wsRef.current?.readyState !== WebSocket.OPEN) return;
-      
-      const inputData = e.inputBuffer.getChannelData(0);
-      const int16Buffer = floatTo16BitPCM(inputData);
-      const base64Audio = base64Encode(int16Buffer);
-
-      wsRef.current.send(JSON.stringify({ audio: base64Audio }));
-    };
-  };
-
-  const floatTo16BitPCM = (input: Float32Array): ArrayBuffer => {
-    const buffer = new ArrayBuffer(input.length * 2);
-    const view = new DataView(buffer);
-    for (let i = 0; i < input.length; i++) {
-      let s = Math.max(-1, Math.min(1, input[i]));
-      view.setInt16(i * 2, s < 0 ? s * 0xC000 : s * 0x3FFF, true); // Prevent absolute clipping while maximizing audio
-    }
-    return buffer;
-  };
-
-  const base64Encode = (buffer: ArrayBuffer): string => {
-    let binary = "";
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary);
-  };
-
-  const playAudioChunk = (base64Data: string) => {
-    if (!outputAudioCtxRef.current) return;
-    
-    const context = outputAudioCtxRef.current;
-    
-    // Decode base64 to byte array
-    const binaryString = window.atob(base64Data);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    
-    // Convert 16-bit integers to float32
-    const int16Array = new Int16Array(bytes.buffer);
-    const float32Array = new Float32Array(int16Array.length);
-    for (let i = 0; i < int16Array.length; i++) {
-      float32Array[i] = int16Array[i] / 32768.0;
-    }
-
-    // Live API returns audio at 24kHz
-    const audioBuffer = context.createBuffer(1, float32Array.length, 24000);
-    audioBuffer.getChannelData(0).set(float32Array);
-
-    const currentTime = context.currentTime;
-    if (nextStartTimeRef.current < currentTime) {
-      nextStartTimeRef.current = currentTime + 0.05; // tiny buffer for gapless playback
-    }
-
-    const source = context.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(context.destination);
-    
-    // Track active sources for stopping on interruption
-    activeSourcesRef.current.push(source);
-    source.onended = () => {
-      activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-    };
-
-    source.start(nextStartTimeRef.current);
-    nextStartTimeRef.current += audioBuffer.duration;
-  };
-
-  const stopAllAudioPlayback = () => {
-    activeSourcesRef.current.forEach(source => {
-      try {
-        source.stop();
-      } catch (_) {}
-    });
-    activeSourcesRef.current = [];
-    nextStartTimeRef.current = 0;
   };
 
   return (

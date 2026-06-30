@@ -4,7 +4,8 @@ import { useStore } from '../store';
 import { Customer, Reservation } from '../types';
 import { 
   ArrowLeft, Calendar, User, Mail, Phone, MapPin, 
-  FileText, CreditCard, Clipboard, Shield, Plus, Printer, Trash, Upload, Camera, DollarSign, CheckCircle2
+  FileText, CreditCard, Clipboard, Shield, Plus, Printer, Trash, Upload, Camera, DollarSign, CheckCircle2,
+  ChevronDown, ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -15,17 +16,40 @@ export default function CustomerDetail() {
   const navigate = useNavigate();
   const store = useStore();
   
+  const formatDate = (dateStr: any, formatPattern: string = 'MMM d, yyyy HH:mm') => {
+    try {
+      if (!dateStr) return 'N/A';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr);
+      return format(d, formatPattern);
+    } catch (e) {
+      return String(dateStr || 'N/A');
+    }
+  };
+  
   const customer = store.customers.find(c => c.id === id);
   const reservations = useMemo(() => {
     return store.reservations
       .filter(r => r.customerId === id)
-      .sort((a, b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime());
+      .sort((a, b) => {
+        const aTime = a.pickupDate ? new Date(a.pickupDate).getTime() : 0;
+        const bTime = b.pickupDate ? new Date(b.pickupDate).getTime() : 0;
+        const finalA = isNaN(aTime) ? 0 : aTime;
+        const finalB = isNaN(bTime) ? 0 : bTime;
+        return finalB - finalA;
+      });
   }, [store.reservations, id]);
 
   const customerContracts = useMemo(() => {
     return store.generatedContracts
       .filter(c => c.customerId === id)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      .sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const finalA = isNaN(aTime) ? 0 : aTime;
+        const finalB = isNaN(bTime) ? 0 : bTime;
+        return finalB - finalA;
+      });
   }, [store.generatedContracts, id]);
 
   const [searchParams] = useSearchParams();
@@ -40,6 +64,27 @@ export default function CustomerDetail() {
   }, [searchParams]);
 
   const [successMsg, setSuccessMsg] = useState('');
+
+  const [expandedReservations, setExpandedReservations] = useState<Record<string, boolean>>({});
+  const toggleReservationExpand = (resId: string) => {
+    setExpandedReservations(prev => ({
+      ...prev,
+      [resId]: !prev[resId]
+    }));
+  };
+
+  const groupedPayments = useMemo(() => {
+    const groups: Record<string, typeof store.payments> = {};
+    const customerPayments = store.payments.filter(p => p && p.customerId === id);
+    customerPayments.forEach(p => {
+      const resId = p.reservationId || 'unassociated';
+      if (!groups[resId]) {
+        groups[resId] = [];
+      }
+      groups[resId].push(p);
+    });
+    return groups;
+  }, [store.payments, id]);
 
   // Form State for edit
   const [formState, setFormState] = useState({
@@ -606,11 +651,15 @@ export default function CustomerDetail() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {customerContracts.map(contract => (
-                  <tr key={contract.contractId}>
+                  <tr 
+                    key={contract.contractId}
+                    onClick={() => navigate(`/reservations/${contract.reservationId}`)}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  >
                     <td className="px-6 py-4 font-medium text-gray-900">{contract.templateName}</td>
-                    <td className="px-6 py-4 font-mono text-indigo-600">#{contract.reservationId.substring(0,8).toUpperCase()}</td>
-                    <td className="px-6 py-4">{format(new Date(contract.createdAt), 'MMM d, yyyy')}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 font-mono text-indigo-600 font-semibold">#{contract.reservationId.substring(0,8).toUpperCase()}</td>
+                    <td className="px-6 py-4 text-gray-500">{formatDate(contract.createdAt, 'MMM d, yyyy')}</td>
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                       <a href={contract.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:text-indigo-800">Download</a>
                     </td>
                   </tr>
@@ -632,91 +681,258 @@ export default function CustomerDetail() {
             <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Rental Payments</p>
               <p className="text-2xl font-extrabold text-green-600 mt-1">
-                ${store.payments.filter(p => p.customerId === id && p.type === 'payment').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                ${store.payments.filter(p => p && p.customerId === id && p.type === 'payment').reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)}
               </p>
             </div>
             <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Security Deposits Held</p>
               <p className="text-2xl font-extrabold text-blue-600 mt-1">
-                ${store.payments.filter(p => p.customerId === id && p.type === 'deposit').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                ${store.payments.filter(p => p && p.customerId === id && p.type === 'deposit').reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)}
               </p>
             </div>
             <div className="bg-white p-5 rounded-xl border border-gray-150 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Refunds Processed</p>
               <p className="text-2xl font-extrabold text-orange-600 mt-1">
-                ${store.payments.filter(p => p.customerId === id && p.type === 'refund').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                ${store.payments.filter(p => p && p.customerId === id && p.type === 'refund').reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)}
               </p>
             </div>
           </div>
 
-          <div className="bg-white border border-gray-150 rounded-xl shadow-sm overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-bold text-gray-900 text-base">Payment & Refund Ledger</h3>
-              </div>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CreditCard className="w-5 h-5 text-indigo-600" />
+              <h3 className="font-bold text-gray-900 text-base">Payment & Refund Ledger</h3>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-[#f8fafc] text-slate-500 font-bold text-xs uppercase tracking-wider border-b border-gray-150">
-                  <tr>
-                    <th className="px-6 py-3.5">Date & Time</th>
-                    <th className="px-6 py-3.5">Type</th>
-                    <th className="px-6 py-3.5">Reservation Connection</th>
-                    <th className="px-6 py-3.5">Method</th>
-                    <th className="px-6 py-3.5">Reference / Notes</th>
-                    <th className="px-6 py-3.5 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-150 font-medium">
-                  {store.payments
-                    .filter(p => p.customerId === id)
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                    .map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 text-gray-500 text-xs font-mono">
-                          {format(new Date(p.date), 'MMM d, yyyy HH:mm')}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border
-                            ${p.type === 'payment' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 
-                              (p.type === 'refund' ? 'bg-orange-50 text-orange-850 border-orange-200' : 'bg-blue-50 text-blue-800 border-blue-200')}`}
-                          >
-                            {p.type}
+            {reservations.map(res => {
+              const isExpanded = !!expandedReservations[res.id];
+              const resPayments = groupedPayments[res.id] || [];
+              const unit = store.vehicles.find(v => v.id === res.vehicleId);
+              const totalPaidForRes = resPayments
+                .filter(p => p.type === 'payment')
+                .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+              const outstandingForRes = Number(res.balance) || 0;
+
+              return (
+                <div key={res.id} className="bg-white border border-gray-150 rounded-xl overflow-hidden shadow-sm transition">
+                  {/* Accordion Trigger Header */}
+                  <div 
+                    onClick={() => toggleReservationExpand(res.id)}
+                    className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50 transition select-none"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 text-slate-400">
+                        {isExpanded ? (
+                          <ChevronDown className="w-5 h-5 text-indigo-600 animate-in fade-in" />
+                        ) : (
+                          <ChevronRight className="w-5 h-5 text-slate-400" />
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-base font-extrabold text-slate-800">
+                            Reservation #{res.id.substring(0, 8).toUpperCase()}
                           </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {p.reservationId ? (
-                            <Link 
-                              to={`/reservations/${p.reservationId}`} 
-                              className="text-indigo-600 hover:text-indigo-855 hover:underline font-mono text-xs font-bold"
-                            >
-                              #{p.reservationId.substring(0, 8).toUpperCase()}
-                            </Link>
-                          ) : (
-                            <span className="text-gray-400 italic">N/A</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-slate-700 text-xs font-semibold">{p.method}</td>
-                        <td className="px-6 py-4 text-xs text-slate-500 italic max-w-xs truncate" title={p.notes || p.label}>
-                          {p.label || p.notes || '-'}
-                        </td>
-                        <td className={`px-6 py-4 text-right font-bold font-mono text-sm
-                          ${p.type === 'refund' ? 'text-orange-600' : 'text-slate-900'}`}
+                          <span className={`px-2 py-0.5 text-[10px] rounded-full font-bold uppercase tracking-wider border
+                            ${res.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : 
+                              res.status === 'Closed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                              res.status === 'Cancelled' ? 'bg-red-50 text-red-700 border-red-200' : 
+                              res.status === 'Pending' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
+                              'bg-blue-50 text-blue-700 border-blue-200'}`}
+                          >
+                            {res.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm text-slate-600">
+                          <div>
+                            <span className="font-semibold text-slate-400 text-xs uppercase tracking-wider mr-1">Vehicle:</span>
+                            <span className="font-bold text-slate-800">{unit ? `${unit.year} ${unit.make} ${unit.model}` : 'Not Assigned'}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400 text-xs uppercase tracking-wider mr-1">Rental:</span>
+                            <span className="font-bold text-slate-800">{res.pickupDate} - {res.returnDate}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6 self-end md:self-auto pl-8 md:pl-0">
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Total Paid</p>
+                        <p className="text-lg font-black text-emerald-600">${totalPaidForRes.toFixed(2)}</p>
+                      </div>
+                      <div className="text-right border-l pl-6 border-slate-150">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Outstanding</p>
+                        <p className={`text-lg font-black ${outstandingForRes > 0 ? 'text-red-500' : 'text-slate-700'}`}>
+                          ${outstandingForRes.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Accordion Content Body */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 bg-slate-50/30 p-6 space-y-6">
+                      {/* Action Button Section */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-dashed border-slate-200 pb-4">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-800">Reservation Connection & Actions</h4>
+                          <p className="text-xs text-slate-500">Manage or audit the ledger connection for this specific contract/reservation booking.</p>
+                        </div>
+                        <Link 
+                          to={`/reservations/${res.id}`}
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-lg text-xs font-bold shadow-sm transition-colors"
+                          style={{ backgroundColor: '#1e3a8a' }}
                         >
-                          {p.type === 'refund' ? '-' : ''}${p.amount.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  {store.payments.filter(p => p.customerId === id).length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">No payments recorded for this customer.</td>
-                    </tr>
+                          View Reservation
+                        </Link>
+                      </div>
+
+                      {/* Reservation Specific Payments List */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Associated Transactions ({resPayments.length})</h4>
+                        {resPayments.length > 0 ? (
+                          <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs whitespace-nowrap">
+                                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                                  <tr>
+                                    <th className="px-4 py-2.5">Date & Time</th>
+                                    <th className="px-4 py-2.5">Type</th>
+                                    <th className="px-4 py-2.5">Method</th>
+                                    <th className="px-4 py-2.5">Notes</th>
+                                    <th className="px-4 py-2.5 text-right">Amount</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium">
+                                  {resPayments
+                                    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+                                    .map(p => (
+                                      <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-4 py-3 font-mono text-slate-500">
+                                          {formatDate(p.date)}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider border
+                                            ${p.type === 'payment' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 
+                                              p.type === 'refund' ? 'bg-orange-50 text-orange-805 border-orange-200' : 'bg-blue-50 text-blue-800 border-blue-200'}`}
+                                          >
+                                            {p.type}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-700 font-semibold">{p.method}</td>
+                                        <td className="px-4 py-3 text-slate-500 italic max-w-xs truncate" title={p.notes || p.label}>
+                                          {p.label || p.notes || '-'}
+                                        </td>
+                                        <td className={`px-4 py-3 text-right font-bold font-mono text-sm
+                                          ${p.type === 'refund' ? 'text-orange-600' : 'text-slate-900'}`}
+                                        >
+                                          {p.type === 'refund' ? '-' : ''}${(Number(p.amount) || 0).toFixed(2)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-6 border border-dashed border-slate-200 bg-white rounded-xl text-center text-xs text-slate-400 italic">
+                            No payment transactions are recorded for this reservation.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              );
+            })}
+
+            {/* Unassociated Payments */}
+            {groupedPayments['unassociated'] && groupedPayments['unassociated'].length > 0 && (
+              <div className="bg-white border border-gray-150 rounded-xl overflow-hidden shadow-sm transition">
+                <div 
+                  onClick={() => toggleReservationExpand('unassociated')}
+                  className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50 transition select-none"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 text-slate-400">
+                      {expandedReservations['unassociated'] ? (
+                        <ChevronDown className="w-5 h-5 text-indigo-600" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-base font-extrabold text-slate-800">
+                        Other Payments & Unassociated Deposits
+                      </span>
+                      <p className="text-xs text-slate-500">Transactions not connected to a specific reservation contract</p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-sans">Total Unassociated</p>
+                    <p className="text-lg font-black text-slate-700">
+                      ${groupedPayments['unassociated'].reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+
+                {expandedReservations['unassociated'] && (
+                  <div className="border-t border-gray-100 bg-slate-50/30 p-6 space-y-4">
+                    <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs whitespace-nowrap">
+                          <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-2.5">Date & Time</th>
+                              <th className="px-4 py-2.5">Type</th>
+                              <th className="px-4 py-2.5">Method</th>
+                              <th className="px-4 py-2.5">Notes</th>
+                              <th className="px-4 py-2.5 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium">
+                            {groupedPayments['unassociated']
+                              .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+                              .map(p => (
+                                <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-4 py-3 font-mono text-slate-500">
+                                    {formatDate(p.date)}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider border
+                                      ${p.type === 'payment' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 
+                                        p.type === 'refund' ? 'bg-orange-50 text-orange-800 border-orange-200' : 'bg-blue-50 text-blue-800 border-blue-200'}`}
+                                    >
+                                      {p.type}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-700 font-semibold">{p.method}</td>
+                                  <td className="px-4 py-3 text-slate-500 italic max-w-xs truncate" title={p.notes || p.label}>
+                                    {p.label || p.notes || '-'}
+                                  </td>
+                                  <td className={`px-4 py-3 text-right font-bold font-mono text-sm
+                                    ${p.type === 'refund' ? 'text-orange-600' : 'text-slate-900'}`}
+                                  >
+                                    {p.type === 'refund' ? '-' : ''}${(Number(p.amount) || 0).toFixed(2)}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {reservations.length === 0 && (!groupedPayments['unassociated'] || groupedPayments['unassociated'].length === 0) && (
+              <div className="p-12 text-center bg-white border rounded-xl border-gray-150 text-gray-400 italic">
+                No reservation bookings or payments recorded for this customer.
+              </div>
+            )}
           </div>
         </div>
       )}

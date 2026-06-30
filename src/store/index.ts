@@ -26,7 +26,18 @@ import {
   SystemUser,
   RentalContract,
   GeneratedContract,
+  EmailTemplateConfig,
 } from '../types';
+
+function cleanFirestoreData<T extends object>(obj: T): T {
+  const result = { ...obj } as any;
+  Object.keys(result).forEach(key => {
+    if (result[key] === undefined) {
+      delete result[key];
+    }
+  });
+  return result;
+}
 
 interface AppState {
   systemUsers: SystemUser[];
@@ -39,6 +50,7 @@ interface AppState {
   maintenances: Maintenance[];
   contracts: RentalContract[];
   generatedContracts: GeneratedContract[];
+  emailTemplates: EmailTemplateConfig[];
 
   archivedCustomers: Customer[];
   archivedVehicles: Vehicle[];
@@ -57,6 +69,12 @@ interface AppState {
   updateSystemUser: (id: string, user: Partial<SystemUser>) => Promise<void>;
   deleteSystemUser: (id: string) => Promise<void>;
 
+  // Email Templates
+  addEmailTemplate: (template: Omit<EmailTemplateConfig, 'id'>) => Promise<string>;
+  updateEmailTemplate: (id: string, template: Partial<EmailTemplateConfig>) => Promise<void>;
+  deleteEmailTemplate: (id: string) => Promise<void>;
+  activateEmailTemplate: (id: string) => Promise<void>;
+
   // Actions
   addCustomer: (customer: Omit<Customer, 'id' | 'totalRentals' | 'activeReservations' | 'totalPaid' | 'outstandingBalance' | 'totalClaims' | 'totalFines' | 'lifetimeRevenue'>) => Promise<string>;
   updateCustomer: (id: string, customer: Partial<Customer>) => Promise<void>;
@@ -70,15 +88,18 @@ interface AppState {
   deleteVehicles: (ids: string[]) => Promise<void>;
   deleteReservation: (id: string) => Promise<void>;
   deleteReservations: (ids: string[]) => Promise<void>;
+  deletePayment: (id: string) => Promise<void>;
+  deletePayments: (ids: string[]) => Promise<void>;
   addChargeTemplate: (template: Omit<ChargeTemplate, 'id'>) => Promise<void>;
   updateChargeTemplate: (id: string, template: Partial<ChargeTemplate>) => Promise<void>;
   deleteChargeTemplate: (id: string) => Promise<void>;
   deleteChargeTemplates: (ids: string[]) => Promise<void>;
 
-  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded'> & { paymentMethod?: string; securityDepositHoldUntil?: string; }, selectedChargeTemplateIds: string[]) => Promise<string>;
+  createReservation: (reservationData: Omit<Reservation, 'id' | 'baseRental' | 'totalAmount' | 'balance' | 'bookingDate' | 'vehicleReturned' | 'securityDepositStatus' | 'securityDepositRefunded'> & { paymentMethod?: string; securityDepositHoldUntil?: string; }, selectedChargeTemplateIds: string[], options?: { sendEmail?: boolean }) => Promise<string>;
   updateReservationStatus: (id: string, status: ReservationStatus) => Promise<void>;
   updateReservation: (id: string, data: Partial<Reservation>) => Promise<void>;
   markVehicleReturned: (id: string) => Promise<void>;
+  sendManualEmailConfirmation: (id: string) => Promise<void>;
 
   addPayment: (payment: Omit<Payment, 'id'>) => Promise<void>;
   addChargeItem: (charge: Omit<ChargeItem, 'id'>) => Promise<void>;
@@ -309,6 +330,7 @@ export const useStore = create<AppState>((set, get) => ({
   maintenances: [],
   contracts: [],
   generatedContracts: [],
+  emailTemplates: [],
 
   archivedCustomers: [],
   archivedVehicles: [],
@@ -332,6 +354,31 @@ export const useStore = create<AppState>((set, get) => ({
 
   deleteSystemUser: async (id) => {
     await deleteDoc(doc(db, 'users', id));
+  },
+
+  addEmailTemplate: async (template) => {
+    const id = uuidv4();
+    const newTemplate = { ...template, id };
+    await setDoc(doc(db, 'emailTemplates', id), newTemplate);
+    return id;
+  },
+  
+  updateEmailTemplate: async (id, data) => {
+    await updateDoc(doc(db, 'emailTemplates', id), data);
+  },
+
+  deleteEmailTemplate: async (id) => {
+    await deleteDoc(doc(db, 'emailTemplates', id));
+  },
+
+  activateEmailTemplate: async (id) => {
+    const templates = get().emailTemplates;
+    for (const t of templates) {
+      if (t.isActive && t.id !== id) {
+        await updateDoc(doc(db, 'emailTemplates', t.id), { isActive: false });
+      }
+    }
+    await updateDoc(doc(db, 'emailTemplates', id), { isActive: true });
   },
 
    addCustomer: async (data) => {
@@ -416,6 +463,16 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  deletePayment: async (id) => {
+    await deleteDoc(doc(db, 'payments', id));
+  },
+
+  deletePayments: async (ids) => {
+    for (const id of ids) {
+      await get().deletePayment(id);
+    }
+  },
+
   addChargeTemplate: async (data) => {
     const id = uuidv4();
     await setDoc(doc(db, 'chargeTemplates', id), { ...data, id });
@@ -439,7 +496,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  createReservation: async (data, selectedChargeTemplateIds) => {
+  createReservation: async (data, selectedChargeTemplateIds, options) => {
     const id = uuidv4();
     const state = get();
 
@@ -471,23 +528,31 @@ export const useStore = create<AppState>((set, get) => ({
     if (overlap) throw new Error("Vehicle already reserved for selected dates.");
 
     const vehicle = state.vehicles.find((v) => v.id === data.vehicleId);
-    let days = differenceInDays(parseISO(data.returnDate), parseISO(data.pickupDate));
-    if (days < 1) days = 1;
+    let days = 1;
+    try {
+      const start = parseISO(data.pickupDate);
+      const end = parseISO(data.returnDate);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        const d = differenceInDays(end, start);
+        days = isNaN(d) || d < 1 ? 1 : d;
+      }
+    } catch (e) {
+      days = 1;
+    }
 
-    const baseRental = vehicle ? vehicle.dailyRate * days : 0;
+    const vehicleRate = vehicle ? Number(vehicle.dailyRate) || 0 : 0;
+    const baseRental = vehicleRate * days;
 
     // Calculate final totalAmount immediately
     let computedTotalAmount = baseRental;
     for (const templateId of selectedChargeTemplateIds) {
       const t = state.chargeTemplates.find((temp) => temp.id === templateId);
       if (t) {
-        computedTotalAmount += t.perDay ? t.rate * days : t.rate;
+        const rate = Number(t.rate) || 0;
+        computedTotalAmount += t.perDay ? rate * days : rate;
       }
     }
-    const depositAmount = data.securityDepositAmount || 0;
-    if (data.includeDepositInTotal && depositAmount > 0) {
-      computedTotalAmount += depositAmount;
-    }
+    const depositAmount = Number(data.securityDepositAmount) || 0;
 
     const isCheckedOut = data.status === 'Checked Out';
     const date = new Date().toISOString();
@@ -516,17 +581,17 @@ export const useStore = create<AppState>((set, get) => ({
       securityDepositRefunded: false,
       securityDepositCollectedDate: isCheckedOut ? date : undefined,
       securityDepositHoldUntil: isCheckedOut ? holdUntil : undefined,
-      includeDepositInTotal: data.includeDepositInTotal || false,
+      includeDepositInTotal: false,
     };
 
-     // Optimistically append newReservation to local Zustand store state
+     // Save Reservation Document first to ensure database write is successful (stripped of undefined values)
+     await setDoc(doc(db, 'reservations', id), cleanFirestoreData(newReservation));
+
+     // Only update local Zustand store state after database success to avoid phantom overlaps
      const currentReservations = get().reservations;
      if (!currentReservations.some(r => r.id === id)) {
        set({ reservations: [...currentReservations, newReservation] });
      }
-
-     // Save Reservation Document
-     await setDoc(doc(db, 'reservations', id), newReservation);
 
     // Save Charges
     for (const templateId of selectedChargeTemplateIds) {
@@ -560,23 +625,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Save Security Deposit Charge Item if we include deposit in total
-    if (data.includeDepositInTotal && depositAmount > 0) {
-      const chargeId = uuidv4();
-      const depositChargeObj = {
-        id: chargeId,
-        reservationId: id,
-        customerId: data.customerId,
-        vehicleId: data.vehicleId,
-        category: 'External Charge' as const,
-        description: 'Security Deposit (Included in Total)',
-        amount: depositAmount,
-        paymentStatus: isCheckedOut ? 'Paid' as const : 'Pending' as const,
-        date: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'chargeItems', chargeId), depositChargeObj);
-      await setDoc(doc(db, 'externalCharges', chargeId), depositChargeObj);
-    }
+
 
     // Record Payments if checked out immediately
     if (isCheckedOut) {
@@ -596,7 +645,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       // 2. Security Deposit Hold payment
-      if (depositAmount > 0) {
+      if (depositAmount > 0 && !data.includeDepositInTotal) {
         const payIdDeposit = uuidv4();
         await setDoc(doc(db, 'payments', payIdDeposit), {
           id: payIdDeposit,
@@ -608,8 +657,10 @@ export const useStore = create<AppState>((set, get) => ({
           type: 'deposit',
           label: 'Security Deposit Held'
         });
+      }
 
-        // 3. Security Deposit hold record
+      // 3. Security Deposit hold record
+      if (depositAmount > 0) {
         const depId = uuidv4();
         await setDoc(doc(db, 'securityDeposits', depId), {
           id: depId,
@@ -628,9 +679,64 @@ export const useStore = create<AppState>((set, get) => ({
     setTimeout(async () => {
       await get().recalculateReservationTotals(id);
       await get().syncVehicleStatus(newReservation);
+      await get().recalculateCustomerStats(data.customerId);
     }, 400);
 
+    // Trigger confirmation email if requested
+    if (options?.sendEmail) {
+      try {
+        const customer = state.customers.find(c => c.id === data.customerId);
+        const vehicleObj = state.vehicles.find(v => v.id === data.vehicleId);
+        if (customer && vehicleObj && customer.email) {
+          fetch('/api/email/send-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerEmail: customer.email,
+              customerName: customer.firstName + ' ' + customer.lastName,
+              reservationId: id,
+              vehicleName: vehicleObj.make + ' ' + vehicleObj.model,
+              pickupDate: data.pickupDate,
+              returnDate: data.returnDate,
+              totalAmount: computedTotalAmount
+            })
+          }).catch(err => console.error("Failed to send email confirmation:", err));
+        }
+      } catch (e) {
+        console.warn("Could not dispatch confirmation email:", e);
+      }
+    }
+
     return id;
+  },
+
+  sendManualEmailConfirmation: async (id: string) => {
+    const state = get();
+    const res = state.reservations.find(r => r.id === id);
+    if (!res) return;
+
+    const customer = state.customers.find(c => c.id === res.customerId);
+    const vehicleObj = state.vehicles.find(v => v.id === res.vehicleId);
+    
+    if (customer && vehicleObj && customer.email) {
+      try {
+        await fetch('/api/email/send-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerEmail: customer.email,
+            customerName: customer.firstName + ' ' + customer.lastName,
+            reservationId: id,
+            vehicleName: vehicleObj.make + ' ' + vehicleObj.model,
+            pickupDate: res.pickupDate,
+            returnDate: res.returnDate,
+            totalAmount: res.totalAmount || res.baseRental
+          })
+        });
+      } catch (e) {
+        console.error("Failed manual email sync", e);
+      }
+    }
   },
 
   updateReservationStatus: async (id, status) => {
@@ -645,7 +751,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   
   updateReservation: async (id, data) => {
-    await updateDoc(doc(db, 'reservations', id), data);
+    await updateDoc(doc(db, 'reservations', id), cleanFirestoreData(data));
     setTimeout(async () => {
       const res = get().reservations.find(r => r.id === id);
       if (res) {
@@ -667,7 +773,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   markVehicleReturned: async (id) => {
-    await updateDoc(doc(db, 'reservations', id), { vehicleReturned: true, status: 'Checked In' });
+    await updateDoc(doc(db, 'reservations', id), { vehicleReturned: true, status: 'Completed' });
     setTimeout(async () => {
       const res = get().reservations.find(r => r.id === id);
       if (res) {
@@ -932,7 +1038,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const payments = state.payments.filter(p => p.reservationId === reservationId);
     const totalPaidBefore = payments
-      .filter(p => p.type === 'payment')
+      .filter(p => p.type === 'payment' || (res.includeDepositInTotal && p.type === 'deposit'))
       .reduce((sum, p) => sum + p.amount, 0);
 
     const outstandingBalance = Math.max(0, totalChargeAmount - totalPaidBefore);
@@ -963,30 +1069,34 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     // 4. Save Security Deposit Hold payment
-    const payIdDeposit = uuidv4();
-    await setDoc(doc(db, 'payments', payIdDeposit), {
-      id: payIdDeposit,
-      reservationId,
-      customerId,
-      amount: depositAmount,
-      date,
-      method: paymentMethod,
-      type: 'deposit',
-      label: 'Security Deposit Held'
-    });
+    if (depositAmount > 0 && !res.includeDepositInTotal) {
+      const payIdDeposit = uuidv4();
+      await setDoc(doc(db, 'payments', payIdDeposit), {
+        id: payIdDeposit,
+        reservationId,
+        customerId,
+        amount: depositAmount,
+        date,
+        method: paymentMethod,
+        type: 'deposit',
+        label: 'Security Deposit Held'
+      });
+    }
 
     // 5. Save Security Deposit hold record
-    const depId = uuidv4();
-    await setDoc(doc(db, 'securityDeposits', depId), {
-      id: depId,
-      reservationId,
-      customerId,
-      amount: depositAmount,
-      status: 'On Hold',
-      collectedDate: date,
-      holdUntil,
-      notes: 'Security Deposit Processed'
-    });
+    if (depositAmount > 0) {
+      const depId = uuidv4();
+      await setDoc(doc(db, 'securityDeposits', depId), {
+        id: depId,
+        reservationId,
+        customerId,
+        amount: depositAmount,
+        status: 'On Hold',
+        collectedDate: date,
+        holdUntil,
+        notes: 'Security Deposit Processed'
+      });
+    }
 
     // 6. Update reservation in a single atomic update
     await updateDoc(doc(db, 'reservations', reservationId), {
@@ -994,7 +1104,7 @@ export const useStore = create<AppState>((set, get) => ({
       securityDepositStatus: 'On Hold',
       securityDepositCollectedDate: date,
       securityDepositHoldUntil: holdUntil,
-      status: 'Checked Out',
+      status: 'Checked In',
       totalAmount: totalChargeAmount,
       balance: 0 // Settled fully
     });
@@ -1023,9 +1133,15 @@ export const useStore = create<AppState>((set, get) => ({
       totalAmount += c.amount;
     });
 
-    const totalPaid = payments
+    const paid = payments
       .filter((p) => p.type === 'payment' || (res.includeDepositInTotal && p.type === 'deposit'))
       .reduce((sum, p) => sum + p.amount, 0);
+
+    const refunded = payments
+      .filter((p) => p.type === 'refund' && !p.label?.includes('Security Deposit'))
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const totalPaid = paid - refunded;
 
     const balance = totalAmount - totalPaid;
 
@@ -1034,7 +1150,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     let updatedStatus = res.status;
     if (isFullyPaid && isDepositRecorded && ['Pending', 'Confirmed'].includes(res.status)) {
-      updatedStatus = 'Checked Out';
+      updatedStatus = 'Checked In';
     }
 
     await updateDoc(doc(db, 'reservations', reservationId), {
@@ -1065,15 +1181,30 @@ export const useStore = create<AppState>((set, get) => ({
     const lastRentalInfo = [...customerReservations].sort((a,b) => new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime())[0];
     const lastRentalDate = lastRentalInfo?.pickupDate || '';
 
-    const customerPayments = state.payments.filter((p) => p.customerId === customerId && p.type === 'payment');
-    const lifetimeRevenue = customerPayments.reduce((sum, p) => sum + p.amount, 0);
+    const customerPayments = state.payments.filter((p) => {
+      if (p.customerId !== customerId || p.type !== 'payment') return false;
+      const res = state.reservations.find(r => r.id === p.reservationId);
+      if (p.label?.includes('Keep Deduction') && res?.includeDepositInTotal) {
+        return false;
+      }
+      return true;
+    });
+    const refunds = state.payments.filter((p) => {
+      if (p.customerId !== customerId || p.type !== 'refund') return false;
+      const res = state.reservations.find(r => r.id === p.reservationId);
+      if (p.label?.includes('Security Deposit')) {
+        return res?.includeDepositInTotal === true;
+      }
+      return true;
+    });
+    const lifetimeRevenue = customerPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) - refunds.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const totalPaid = lifetimeRevenue;
 
-    const outstandingBalance = customerReservations.reduce((sum, r) => sum + Math.max(0, r.balance), 0);
+    const outstandingBalance = customerReservations.reduce((sum, r) => sum + Math.max(0, Number(r.balance) || 0), 0);
 
     const customerCharges = state.chargeItems.filter((c) => c.customerId === customerId);
-    const totalClaims = customerCharges.filter(c => c.category === 'Claim').reduce((sum, c) => sum + c.amount, 0);
-    const totalFines = customerCharges.filter(c => c.category === 'Fine').reduce((sum, c) => sum + c.amount, 0);
+    const totalClaims = customerCharges.filter(c => c.category === 'Claim').reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+    const totalFines = customerCharges.filter(c => c.category === 'Fine').reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 
     await updateDoc(doc(db, 'customers', customerId), {
       totalRentals,
@@ -1292,7 +1423,13 @@ export function setupFirebaseSync() {
     useStore.setState({ commissions: list });
   });
 
-  // 18. Contracts & Agreements
+  // 18. Email Templates
+  onSnapshot(collection(db, 'emailTemplates'), (snap) => {
+    const list = snap.docs.map(d => d.data() as EmailTemplateConfig);
+    useStore.setState({ emailTemplates: list });
+  });
+
+  // 19. Contracts & Agreements
   onSnapshot(collection(db, 'contracts'), (snap) => {
     if (snap.empty) {
       const defaultContracts: RentalContract[] = [

@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { format, isToday, isThisWeek, isThisMonth } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -17,19 +18,91 @@ const mockChartData = [
 export default function Dashboard() {
   const store = useStore();
 
+  const [selectedMonth, setSelectedMonth] = useState(() => format(new Date(), 'yyyy-MM'));
+
+  const availableMonths = useMemo(() => {
+    const years = new Set<number>();
+    years.add(new Date().getFullYear()); // Always include current year (e.g. 2026)
+
+    // Add any other years from payments
+    store.payments.forEach(p => {
+      if (p && p.date) {
+        const d = new Date(p.date);
+        if (!isNaN(d.getTime())) {
+          years.add(d.getFullYear());
+        }
+      }
+    });
+
+    const monthsList: string[] = [];
+    // Sort years descending so recent years appear on top
+    Array.from(years)
+      .sort((a, b) => b - a)
+      .forEach(year => {
+        // Generate months 1 to 12 (January to December)
+        for (let m = 1; m <= 12; m++) {
+          const mStr = m.toString().padStart(2, '0');
+          monthsList.push(`${year}-${mStr}`);
+        }
+      });
+
+    return monthsList;
+  }, [store.payments]);
+
+  const [revenueTimeFrame, setRevenueTimeFrame] = useState<'all' | '7' | '14' | '30' | '60' | 'custom'>('all');
+  const [revenueStartDate, setRevenueStartDate] = useState('');
+  const [revenueEndDate, setRevenueEndDate] = useState('');
+
+  const filteredTotalRevenue = useMemo(() => {
+    return store.payments
+      .filter(p => {
+        if (!p || p.type !== 'payment') return false;
+        if (!p.date) return revenueTimeFrame === 'all';
+        const pDate = new Date(p.date);
+        if (isNaN(pDate.getTime())) return false;
+
+        if (revenueTimeFrame === 'all') return true;
+
+        if (revenueTimeFrame === 'custom') {
+          if (revenueStartDate) {
+            // Compare as simple date string or start of day
+            const start = new Date(revenueStartDate + 'T00:00:00');
+            if (pDate < start) return false;
+          }
+          if (revenueEndDate) {
+            const end = new Date(revenueEndDate + 'T23:59:59');
+            if (pDate > end) return false;
+          }
+          return true;
+        }
+
+        // 7, 14, 30, 60 days
+        const limitDays = parseInt(revenueTimeFrame, 10);
+        const diffTime = new Date().getTime() - pDate.getTime();
+        const diffDays = diffTime / (1000 * 60 * 60 * 24);
+        return diffDays >= 0 && diffDays <= limitDays;
+      })
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  }, [store.payments, revenueTimeFrame, revenueStartDate, revenueEndDate]);
+
   const totalRevenue = store.payments
     .filter(p => p.type === 'payment')
-    .reduce((sum, p) => sum + p.amount, 0);
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
   const todayRevenue = store.payments
-    .filter(p => p.type === 'payment' && isToday(new Date(p.date)))
-    .reduce((sum, p) => sum + p.amount, 0);
+    .filter(p => p && p.type === 'payment' && p.date && !isNaN(new Date(p.date).getTime()) && isToday(new Date(p.date)))
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-  const monthlyRevenue = store.payments
-    .filter(p => p.type === 'payment' && isThisMonth(new Date(p.date)))
-    .reduce((sum, p) => sum + p.amount, 0);
+  const selectedMonthRevenue = store.payments
+    .filter(p => {
+      if (!p || p.type !== 'payment' || !p.date) return false;
+      const d = new Date(p.date);
+      if (isNaN(d.getTime())) return false;
+      return format(d, 'yyyy-MM') === selectedMonth;
+    })
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-  const outstandingBalance = store.reservations.reduce((sum, r) => sum + Math.max(0, r.balance), 0);
+  const outstandingBalance = store.reservations.reduce((sum, r) => sum + Math.max(0, Number(r.balance) || 0), 0);
 
   const activeReservations = store.reservations.filter(r => !['Completed', 'Cancelled', 'Closed'].includes(r.status));
   const activeCount = activeReservations.length;
@@ -39,8 +112,8 @@ export default function Dashboard() {
   const serviceVehicles = store.vehicles.filter(v => v.status === 'Maintenance').length;
   const repairVehicles = store.vehicles.filter(v => v.status === 'Repair').length;
 
-  const todayPickups = activeReservations.filter(r => isToday(new Date(r.pickupDate))).length;
-  const todayReturns = activeReservations.filter(r => isToday(new Date(r.returnDate))).length;
+  const todayPickups = activeReservations.filter(r => r.pickupDate && !isNaN(new Date(r.pickupDate).getTime()) && isToday(new Date(r.pickupDate))).length;
+  const todayReturns = activeReservations.filter(r => r.returnDate && !isNaN(new Date(r.returnDate).getTime()) && isToday(new Date(r.returnDate))).length;
 
   const pendingRefunds = store.reservations
     .filter(r => r.status === 'Completed' && !r.securityDepositRefunded)
@@ -81,28 +154,90 @@ export default function Dashboard() {
       {/* 4-col KPI row */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col justify-between relative overflow-hidden group">
-          <div className="flex justify-between items-start mb-6 w-full">
-            <p className="text-xs font-bold text-slate-400 tracking-wider">TOTAL GROSS REVENUE</p>
-            <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500">
+          <div className="flex justify-between items-start gap-2 mb-4 w-full">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-400 tracking-wider mb-1">TOTAL GROSS REVENUE</p>
+              <select
+                value={revenueTimeFrame}
+                onChange={e => setRevenueTimeFrame(e.target.value as any)}
+                className="text-xs font-bold text-indigo-750 bg-indigo-50/50 hover:bg-indigo-100/60 border border-indigo-100 rounded-lg px-2.5 py-1.5 outline-none cursor-pointer transition w-full"
+              >
+                <option value="all">Lifetime Gross Revenue</option>
+                <option value="7">Last 7 Days</option>
+                <option value="14">Last 14 Days</option>
+                <option value="30">Last 30 Days</option>
+                <option value="60">Last 60 Days</option>
+                <option value="custom">Custom Date Range</option>
+              </select>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-indigo-50 flex flex-shrink-0 items-center justify-center text-indigo-500">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
+
+          {revenueTimeFrame === 'custom' && (
+            <div className="mb-4 grid grid-cols-2 gap-2 p-2 bg-slate-50 border border-slate-100 rounded-xl animate-in slide-in-from-top-1 duration-150">
+              <div>
+                <label className="block text-[9px] font-bold text-slate-450 uppercase mb-0.5">Start Date</label>
+                <input
+                  type="date"
+                  value={revenueStartDate}
+                  onChange={e => setRevenueStartDate(e.target.value)}
+                  className="w-full text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-bold text-slate-450 uppercase mb-0.5">End Date</label>
+                <input
+                  type="date"
+                  value={revenueEndDate}
+                  onChange={e => setRevenueEndDate(e.target.value)}
+                  className="w-full text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1.5 py-1 outline-none"
+                />
+              </div>
+            </div>
+          )}
+
           <div>
-            <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">${totalRevenue.toFixed(2)}</h2>
-            <p className="text-xs text-slate-400 font-medium">Lifetime revenue accrued from closed billing</p>
+            <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">${filteredTotalRevenue.toFixed(2)}</h2>
+            <p className="text-xs text-slate-400 font-medium">
+              {revenueTimeFrame === 'all' && 'Lifetime revenue accrued from closed billing'}
+              {revenueTimeFrame === '7' && 'Total revenue accrued in the last 7 days'}
+              {revenueTimeFrame === '14' && 'Total revenue accrued in the last 14 days'}
+              {revenueTimeFrame === '30' && 'Total revenue accrued in the last 30 days'}
+              {revenueTimeFrame === '60' && 'Total revenue accrued in the last 60 days'}
+              {revenueTimeFrame === 'custom' && 'Revenue accrued during specified custom dates'}
+            </p>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col justify-between relative overflow-hidden group">
-          <div className="flex justify-between items-start mb-6 w-full">
-            <p className="text-xs font-bold text-slate-400 tracking-wider">SELECTED MONTH REVENUE</p>
-            <div className="w-8 h-8 rounded-full bg-teal-50 flex items-center justify-center text-teal-500">
+          <div className="flex justify-between items-start gap-2 mb-4 w-full">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-400 tracking-wider uppercase mb-1">Gross Revenue By Month</p>
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="text-xs font-bold text-indigo-750 bg-indigo-50/50 hover:bg-indigo-100/60 border border-indigo-100 rounded-lg px-2.5 py-1.5 outline-none cursor-pointer transition"
+              >
+                {availableMonths.map(m => {
+                  const [year, month] = m.split('-');
+                  const date = new Date(Number(year), Number(month) - 1, 1);
+                  return (
+                    <option key={m} value={m}>
+                      {format(date, 'MMMM yyyy')}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-teal-50 flex flex-shrink-0 items-center justify-center text-teal-500">
               <Calendar className="w-4 h-4" />
             </div>
           </div>
           <div>
-            <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">${monthlyRevenue.toFixed(2)}</h2>
-            <p className="text-xs text-slate-400 font-medium">Calculated for the current calendar cycle</p>
+            <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">${selectedMonthRevenue.toFixed(2)}</h2>
+            <p className="text-xs text-slate-400 font-medium">Calculated for the chosen calendar cycle</p>
           </div>
         </div>
 

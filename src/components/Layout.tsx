@@ -2,13 +2,14 @@ import { useState, useEffect, ReactElement } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Car, Calendar, CreditCard, 
-  Settings, FileText, Menu, X, LogOut, ChevronRight, Archive, UserCog, BookOpen, Phone
+  Settings, FileText, Menu, X, LogOut, ChevronRight, Archive, UserCog, BookOpen, Phone, Mail
 } from 'lucide-react';
 import { useAuth } from '../store/authStore';
 import { useStore } from '../store';
 import { motion, AnimatePresence } from 'motion/react';
 import clsx from 'clsx';
 import Chatbot from './Chatbot';
+import GlobalSearch from './GlobalSearch';
 
 export default function Layout(): ReactElement {
   const { user, logout } = useAuth();
@@ -218,6 +219,7 @@ export default function Layout(): ReactElement {
     { to: '/archive', label: 'Archive', icon: Archive },
     { to: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
     { to: '/portal', label: 'Voice Portal', icon: Phone },
+    { to: '/email-template', label: 'Email Templates', icon: Mail },
   ];
 
   if (user?.role === 'admin') {
@@ -332,6 +334,8 @@ export default function Layout(): ReactElement {
             <h2 className="text-xl font-black text-slate-900 tracking-tight">System Console</h2>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Global Fleet Operations</p>
           </div>
+
+          <GlobalSearch />
 
           <div className="ml-auto flex items-center gap-3 lg:gap-6">
             <div className="hidden sm:flex flex-col items-end">

@@ -11,9 +11,20 @@ export default function Payments() {
   const [filterType, setFilterType] = useState('all');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
+  const formatDate = (dateStr: any) => {
+    try {
+      if (!dateStr) return 'N/A';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr);
+      return format(d, 'MMM d, yyyy HH:mm');
+    } catch (e) {
+      return String(dateStr || 'N/A');
+    }
+  };
+
   const groupedCustomerPayments = useMemo(() => {
     // 1. Filter matching payments by types (payment, refund, deposit)
-    let matchedPayments = [...payments];
+    let matchedPayments = [...payments].filter(p => p && p.customerId);
     if (filterType !== 'all') {
       matchedPayments = matchedPayments.filter(p => p.type === filterType);
     }
@@ -27,34 +38,39 @@ export default function Payments() {
     }> = {};
 
     matchedPayments.forEach(p => {
+      const amt = Number(p.amount) || 0;
       if (!map[p.customerId]) {
          map[p.customerId] = {
            customerId: p.customerId,
            latestPayment: p,
            allMatchingPayments: [p],
-           totalAmount: p.amount
+           totalAmount: amt
          };
       } else {
          const group = map[p.customerId];
          group.allMatchingPayments.push(p);
-         group.totalAmount += p.amount;
+         group.totalAmount += amt;
          // Select the latest transaction based on exact timestamp
-         if (new Date(p.date).getTime() > new Date(group.latestPayment.date).getTime()) {
+         const pTime = p.date ? new Date(p.date).getTime() : 0;
+         const groupTime = group.latestPayment?.date ? new Date(group.latestPayment.date).getTime() : 0;
+         if (pTime > groupTime) {
            group.latestPayment = p;
          }
       }
     });
 
     // 3. Convert to array and sort by the latest payment date descending
-    return Object.values(map).sort(
-      (a, b) => new Date(b.latestPayment.date).getTime() - new Date(a.latestPayment.date).getTime()
-    );
+    return Object.values(map).sort((a, b) => {
+      const aTime = a.latestPayment?.date ? new Date(a.latestPayment.date).getTime() : 0;
+      const bTime = b.latestPayment?.date ? new Date(b.latestPayment.date).getTime() : 0;
+      return bTime - aTime;
+    });
   }, [payments, filterType]);
 
-  const collected = payments.filter(p => p.type === 'payment').reduce((sum, p) => sum + p.amount, 0);
-  const refunded = payments.filter(p => p.type === 'refund').reduce((sum, p) => sum + p.amount, 0);
-  const depositHeld = payments.filter(p => p.type === 'deposit').reduce((sum, p) => sum + p.amount, 0);
-  const outstanding = reservations.reduce((sum, r) => sum + Math.max(0, r.balance), 0);
+  const collected = payments.filter(p => p && p.type === 'payment').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const refunded = payments.filter(p => p && p.type === 'refund' && !p.label?.includes('Security Deposit')).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const depositHeld = payments.filter(p => p && p.type === 'deposit').reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const outstanding = reservations.filter(r => r).reduce((sum, r) => sum + Math.max(0, Number(r.balance) || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -129,8 +145,9 @@ export default function Payments() {
             </thead>
             <tbody className="divide-y divide-gray-150 font-medium text-slate-700">
               {groupedCustomerPayments.map(group => {
-                const c = customers.find(cust => cust.id === group.customerId);
+                const c = customers.find(cust => cust && cust.id === group.customerId);
                 const p = group.latestPayment;
+                if (!p) return null;
                 return (
                   <tr 
                     key={group.customerId} 
@@ -160,7 +177,7 @@ export default function Payments() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-gray-500 text-xs font-mono">
-                      {format(new Date(p.date), 'MMM d, yyyy HH:mm')}
+                      {formatDate(p.date)}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border
@@ -172,10 +189,10 @@ export default function Payments() {
                     </td>
                     <td className="px-6 py-4 text-slate-650 text-xs font-semibold">{p.method}</td>
                     <td className="px-6 py-4 text-right">
-                      <div className="font-mono text-sm text-slate-900 font-bold">${p.amount.toFixed(2)}</div>
+                      <div className="font-mono text-sm text-slate-900 font-bold">${(Number(p.amount) || 0).toFixed(2)}</div>
                       {group.allMatchingPayments.length > 1 && (
                         <div className="text-[10px] text-indigo-650 font-mono font-bold">
-                          (Total of {group.allMatchingPayments.length}: ${group.totalAmount.toFixed(2)})
+                          (Total of {group.allMatchingPayments.length}: ${(Number(group.totalAmount) || 0).toFixed(2)})
                         </div>
                       )}
                     </td>

@@ -118,6 +118,19 @@
         "perDay": { "type": "boolean" }
       },
       "required": ["id", "name", "category", "rate"]
+    },
+    "KnowledgeBaseArticle": {
+      "title": "KnowledgeBaseArticle",
+      "description": "An article in the knowledge base",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "category", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -144,6 +157,10 @@
     "chargeTemplates": {
       "schema": "ChargeTemplate",
       "description": "Templates of charges"
+    },
+    "knowledgeBase": {
+      "schema": "KnowledgeBaseArticle",
+      "description": "Knowledge base articles"
     },
     "chargeItems": {
       "schema": { "$ref": "#/entities/Payment" },

@@ -40,7 +40,7 @@ export const useAuth = create<AuthState>((set) => {
           profile = {
             email: firebaseUser.email || '',
             name: data.name || firebaseUser.displayName || 'Staff Member',
-            role: (data.role || 'staff').toLowerCase(),
+            role: firebaseUser.email === 'cerezvincent24@gmail.com' ? 'admin' : (data.role || 'staff').toLowerCase(),
           };
         } else {
           // If the profile document doesn't exist in Firestore, create one!

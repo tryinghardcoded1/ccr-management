@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { Customer } from '../types';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Filter, AlertCircle, CheckCircle2, Trash2, Upload } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, CheckCircle2, Trash2, Upload, Sparkles, Loader2, Check } from 'lucide-react';
 import { BulkImportModal } from '../components/BulkImportModal';
 
 export default function Customers() {
@@ -29,6 +29,72 @@ export default function Customers() {
     driverLicenseExpiration: '',
     notes: '',
   });
+
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState('');
+  const [ocrSuccess, setOcrSuccess] = useState(false);
+
+  const handleLicenseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOcrLoading(true);
+    setOcrError('');
+    setOcrSuccess(false);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const base64Data = reader.result as string;
+          const response = await fetch('/api/ocr-license', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              base64Image: base64Data,
+              mimeType: file.type,
+            }),
+          });
+
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error || 'Server error during extraction.');
+          }
+
+          const result = await response.json();
+          
+          setFormData(prev => ({
+            ...prev,
+            firstName: result.firstName || prev.firstName,
+            lastName: result.lastName || prev.lastName,
+            driverLicenseNumber: result.driverLicenseNumber || prev.driverLicenseNumber,
+            driverLicenseExpiration: result.driverLicenseExpiration || prev.driverLicenseExpiration,
+          }));
+
+          setOcrSuccess(true);
+          setTimeout(() => setOcrSuccess(false), 5000);
+        } catch (err: any) {
+          console.error(err);
+          setOcrError(err.message || 'Failed to scan image. Please try again or enter manually.');
+        } finally {
+          setOcrLoading(false);
+        }
+      };
+
+      reader.onerror = () => {
+        setOcrError('Failed to read the file.');
+        setOcrLoading(false);
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error(err);
+      setOcrError('An unexpected error occurred.');
+      setOcrLoading(false);
+    }
+  };
 
   const [validationError, setValidationError] = useState('');
 
@@ -350,7 +416,62 @@ export default function Customers() {
               </div>
 
               <div className="border-t border-gray-150 pt-3 mt-4 space-y-4">
-                <h4 className="font-bold text-gray-800 text-sm">Identity Verification</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-gray-800 text-sm">Identity Verification</h4>
+                  <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    <Sparkles className="w-3 h-3 text-indigo-650" /> AI Enabled
+                  </span>
+                </div>
+
+                {/* AI License Scanner Component */}
+                <div className="border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50/40 p-4 rounded-xl text-center relative group transition cursor-pointer">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={handleLicenseUpload}
+                    disabled={ocrLoading}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed" 
+                  />
+                  <div className="flex flex-col items-center justify-center space-y-2">
+                    {ocrLoading ? (
+                      <>
+                        <Loader2 className="w-6 h-6 text-indigo-650 animate-spin" />
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">Reading License Card...</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Gemini is automatically extracting information</p>
+                        </div>
+                      </>
+                    ) : ocrSuccess ? (
+                      <>
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                          <Check className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-emerald-800">Extraction Complete!</p>
+                          <p className="text-[10px] text-emerald-600">License details populated below</p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:scale-105 transition-transform">
+                          <Upload className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Scan Driver's License Image</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Upload license image to automatically fill the form fields</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {ocrError && (
+                  <div className="bg-red-50 text-red-700 p-2.5 rounded-lg flex items-center gap-2 text-xs border border-red-100 animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 animate-bounce" />
+                    <span>{ocrError}</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">Driver's License Number</label>
