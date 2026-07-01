@@ -207,24 +207,41 @@ export default function Layout(): ReactElement {
     navigate('/login');
   };
 
-  const links = [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/customers', label: 'Customers', icon: Users },
-    { to: '/vehicles', label: 'Fleet Management', icon: Car },
-    { to: '/reservations', label: 'Reservations', icon: Calendar },
-    { to: '/payments', label: 'Payment Record', icon: CreditCard },
-    { to: '/reports', label: 'System Reports', icon: FileText },
-    { to: '/charges', label: 'Rate Management', icon: Settings },
-    { to: '/contracts', label: 'Contracts & Agreements', icon: FileText },
-    { to: '/archive', label: 'Archive', icon: Archive },
-    { to: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
-    { to: '/portal', label: 'Voice Portal', icon: Phone },
-    { to: '/email-template', label: 'Email Templates', icon: Mail },
+  const categories = [
+    {
+      title: "🚗 Daily Operations",
+      items: [
+        { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+        { to: '/reservations', label: 'Reservations', icon: Calendar },
+        { to: '/customers', label: 'Customers', icon: Users },
+        { to: '/vehicles', label: 'Vehicle Management', icon: Car },
+        { to: '/payments', label: 'Payment Record', icon: CreditCard },
+        { to: '/contracts', label: 'Contracts & Agreements', icon: FileText },
+      ]
+    },
+    {
+      title: "📊 Business Management",
+      items: [
+        { to: '/charges', label: 'Rate Management', icon: Settings },
+        { to: '/reports', label: 'System Reports', icon: FileText },
+        { to: '/archive', label: 'Archive', icon: Archive },
+      ]
+    },
+    {
+      title: "📞 Communication",
+      items: [
+        { to: '/portal', label: 'Voice Portal', icon: Phone },
+        { to: '/email-template', label: 'Email Templates', icon: Mail },
+      ]
+    },
+    {
+      title: "⚙️ Administration",
+      items: [
+        ...(user?.role === 'admin' ? [{ to: '/users', label: 'System Users', icon: UserCog }] : []),
+        { to: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
+      ]
+    }
   ];
-
-  if (user?.role === 'admin') {
-    links.push({ to: '/users', label: 'System Users', icon: UserCog });
-  }
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-[#111827] text-white">
@@ -237,28 +254,36 @@ export default function Layout(): ReactElement {
         </div>
       </div>
 
-      <nav className="flex-1 py-8 px-4 space-y-1.5 overflow-y-auto scrollbar-hide">
-        <p className="px-3 text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4">Operations</p>
-        {links.map((link) => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className={({ isActive }) =>
-              clsx(
-                'group flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
-                isActive 
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              )
-            }
-          >
-            <div className="flex items-center">
-              <link.icon className={clsx("w-5 h-5 mr-3 shrink-0 transition-transform group-hover:scale-110")} />
-              {link.label}
+      <nav className="flex-1 py-6 px-4 space-y-6 overflow-y-auto scrollbar-hide">
+        {categories.map((cat, catIdx) => (
+          <div key={cat.title} className={catIdx > 0 ? "pt-2" : ""}>
+            <p className="px-3 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              {cat.title}
+            </p>
+            <div className="space-y-1">
+              {cat.items.map((link) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={({ isActive }) =>
+                    clsx(
+                      'group flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
+                      isActive 
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                    )
+                  }
+                >
+                  <div className="flex items-center">
+                    <link.icon className={clsx("w-5 h-5 mr-3 shrink-0 transition-transform group-hover:scale-110")} />
+                    {link.label}
+                  </div>
+                  <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-40 transition-opacity" />
+                </NavLink>
+              ))}
             </div>
-            <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-40 transition-opacity" />
-          </NavLink>
+          </div>
         ))}
       </nav>
 
