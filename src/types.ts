@@ -2,7 +2,7 @@ export type VehicleStatus = 'Available' | 'Reserved' | 'Rented' | 'Maintenance' 
 export type ReservationStatus = 'Pending' | 'Confirmed' | 'Checked Out' | 'Checked In' | 'Completed' | 'Cancelled' | 'Closed';
 export type PaymentStatus = 'Pending' | 'Paid';
 export type PaymentType = 'payment' | 'deposit' | 'refund';
-export type ChargeCategory = 'External Charge' | 'Fine' | 'Claim';
+export type ChargeCategory = 'External Charge' | 'Fine' | 'Claim' | 'Cancellation Fee';
 
 export interface SystemUser {
   id: string;
@@ -86,9 +86,11 @@ export interface Reservation {
   securityDepositRefundDate?: string;
   securityDepositRefunded: boolean;
   includeDepositInTotal?: boolean;
-  agreementStatus?: 'Pending' | 'Signed';
+  agreementStatus?: 'Pending' | 'Signed' | 'Cancelled';
   agreementSentDate?: string;
   agreementSignedDate?: string;
+  cancellationFee?: number;
+  cancellationReason?: string;
 }
 
 export interface Payment {

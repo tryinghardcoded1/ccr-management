@@ -121,17 +121,23 @@ export default function ChargeManagement() {
             <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-6 space-y-4">
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Name</label><input required className="w-full border rounded-md px-3 py-2 text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-                <select required className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                <select required className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={formData.category} onChange={e => {
+                  const cat = e.target.value;
+                  setFormData({...formData, category: cat, perDay: cat === 'Cancellation Fee' ? false : formData.perDay});
+                }}>
                   <option value="External Charge">External Charge</option>
                   <option value="Fine">Fine</option>
                   <option value="Claim">Claim</option>
+                  <option value="Cancellation Fee">Cancellation Fee</option>
                 </select>
               </div>
               <div><label className="block text-xs font-medium text-gray-700 mb-1">Rate ($)</label><input required type="number" className="w-full border rounded-md px-3 py-2 text-sm" value={formData.rate} onChange={e => setFormData({...formData, rate: parseFloat(e.target.value)})} /></div>
-              <div className="flex items-center space-x-2">
-                <input type="checkbox" id="perDay" checked={formData.perDay} onChange={e => setFormData({...formData, perDay: e.target.checked})} className="rounded border-gray-300" />
-                <label htmlFor="perDay" className="text-sm text-gray-700">Charge per day of rental</label>
-              </div>
+              {formData.category !== 'Cancellation Fee' && (
+                <div className="flex items-center space-x-2">
+                  <input type="checkbox" id="perDay" checked={formData.perDay} onChange={e => setFormData({...formData, perDay: e.target.checked})} className="rounded border-gray-300" />
+                  <label htmlFor="perDay" className="text-sm text-gray-700">Charge per day of rental</label>
+                </div>
+              )}
               <div className="pt-6">
                 <button type="submit" className="w-full bg-indigo-600 text-white rounded-lg py-2 font-medium hover:bg-indigo-700">Save Template</button>
               </div>

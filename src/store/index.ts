@@ -7,11 +7,19 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  onSnapshot,
+  onSnapshot as firestoreOnSnapshot,
   getDocs,
   query,
   where,
 } from 'firebase/firestore';
+
+// Wrapper to catch any Firestore snapshot listener errors and prevent unhandled/uncaught exceptions
+function onSnapshot(queryRef: any, onNext: (snap: any) => void, onError?: (err: any) => void) {
+  const defaultOnError = (err: any) => {
+    console.warn(`[Firebase Sync Warning] A snapshot listener failed to connect:`, err.message || err);
+  };
+  return firestoreOnSnapshot(queryRef, onNext, onError || defaultOnError);
+}
 import { db } from '../lib/firebase';
 import {
   Customer,
@@ -318,6 +326,7 @@ const seedChargeTemplates: ChargeTemplate[] = [
   { id: 't2', name: 'Toll Fee', category: 'External Charge', rate: 20, perDay: true },
   { id: 't3', name: 'Smoking Fee', category: 'Fine', rate: 150, perDay: false },
   { id: 't4', name: 'Damage Claim', category: 'Claim', rate: 500, perDay: false },
+  { id: 't5', name: 'Cancellation Fee', category: 'Cancellation Fee', rate: 50, perDay: false },
 ];
 
 export const useStore = create<AppState>((set, get) => ({
@@ -1204,9 +1213,11 @@ export const useStore = create<AppState>((set, get) => ({
     const charges = state.chargeItems.filter((c) => c.reservationId === reservationId);
     const payments = state.payments.filter((p) => p.reservationId === reservationId);
 
-    let totalAmount = res.baseRental;
+    let totalAmount = res.status === 'Cancelled' ? (res.cancellationFee || 0) : res.baseRental;
     charges.forEach((c) => {
-      totalAmount += c.amount;
+      if (res.status !== 'Cancelled') {
+        totalAmount += c.amount;
+      }
     });
 
     const paid = payments
@@ -1219,7 +1230,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const totalPaid = paid - refunded;
 
-    const balance = totalAmount - totalPaid;
+    const balance = res.status === 'Cancelled' ? 0 : totalAmount - totalPaid;
 
     const isFullyPaid = balance <= 0;
     const isDepositRecorded = res.securityDepositStatus === 'On Hold';

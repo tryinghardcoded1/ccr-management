@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useAuth } from '../store/authStore';
 import { ReservationStatus, ChargeCategory, PaymentStatus, Vehicle as StoreVehicle } from '../types';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { 
   ArrowLeft, Car, User, Calendar, DollarSign, Clock, CreditCard, 
-  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText, Printer, Lock, ChevronDown, RefreshCw
+  Plus, CheckCircle, AlertTriangle, Shuffle, ShieldAlert, Check, FileText, Printer, Lock, ChevronDown, RefreshCw, XCircle
 } from 'lucide-react';
 
 export default function ReservationDetail() {
@@ -14,6 +14,7 @@ export default function ReservationDetail() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const store = useStore();
+  const navigate = useNavigate();
   const { user } = useAuth();
   
   const reservation = store.reservations.find(r => r.id === id);
@@ -35,7 +36,10 @@ export default function ReservationDetail() {
   };
 
   // Active floating dialog modal state
-  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement' | 'initial_checkout'>(null);
+  const [activeModal, setActiveModal] = useState<null | 'payment' | 'claim' | 'fine' | 'external' | 'switch' | 'deposit' | 'returnVehicle' | 'agreement' | 'initial_checkout' | 'cancelReservation'>(null);
+  const [cancellationFeeApply, setCancellationFeeApply] = useState(false);
+  const [cancellationFeeAmount, setCancellationFeeAmount] = useState(50);
+  const [cancellationReasonText, setCancellationReasonText] = useState('');
   const [hasSeenAgreement, setHasSeenAgreement] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -238,6 +242,26 @@ export default function ReservationDetail() {
       return;
     }
     store.updateReservationStatus(reservation.id, 'Completed');
+  };
+
+  const handleCancelReservationSubmit = async () => {
+    if (!reservation) return;
+    try {
+      const fee = cancellationFeeApply ? Number(cancellationFeeAmount) || 0 : 0;
+      
+      await store.updateReservation(reservation.id, {
+        status: 'Cancelled',
+        cancellationFee: fee,
+        cancellationReason: cancellationReasonText || undefined
+      });
+
+      await store.recalculateReservationTotals(reservation.id);
+
+      setActiveModal(null);
+      navigate('/reservations', { state: { filter: 'Cancelled' } });
+    } catch (err: any) {
+      alert("Error cancelling reservation: " + err.message);
+    }
   };
 
   const handleInitialCheckout = async (e: React.FormEvent) => {
@@ -929,6 +953,20 @@ export default function ReservationDetail() {
                 </button>
               </div>
 
+              {reservation.status !== 'Cancelled' && reservation.status !== 'Completed' && reservation.status !== 'Closed' && (
+                <button 
+                  onClick={() => {
+                    setCancellationFeeApply(false);
+                    setCancellationFeeAmount(50);
+                    setCancellationReasonText('');
+                    setActiveModal('cancelReservation');
+                  }}
+                  className="w-full border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer mt-2"
+                >
+                  <XCircle className="w-4 h-4 text-red-500" /> Cancel Reservation
+                </button>
+              )}
+
               <div className="pt-2 space-y-2">
                 {reservation.status === 'Checked In' && (
                   <button 
@@ -988,16 +1026,30 @@ export default function ReservationDetail() {
             {/* ORDERED FINANCIAL BREAKDOWN */}
             <div className="space-y-6 text-sm">
               
-              {/* 1. Base Rental */}
-              <div className="space-y-1">
-                <div className="flex justify-between items-baseline">
-                  <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Base Rental</span>
-                  <span className="font-extrabold text-gray-950">${(reservation.baseRental || 0).toFixed(2)}</span>
+              {/* 1. Base Rental or Cancellation Fee */}
+              {reservation.status === 'Cancelled' ? (
+                <div className="space-y-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-bold text-red-700 uppercase text-xs tracking-wider">Cancellation Fee</span>
+                    <span className="font-extrabold text-red-700">${(reservation.cancellationFee || 0).toFixed(2)}</span>
+                  </div>
+                  {reservation.cancellationReason && (
+                    <div className="text-xs text-gray-500">
+                      Reason: {reservation.cancellationReason}
+                    </div>
+                  )}
                 </div>
-                <div className="text-xs text-gray-500">
-                  {rentalDays} Day{rentalDays > 1 ? 's' : ''} × ${(vehicle.dailyRate || 0).toFixed(2)}
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-bold text-gray-900 uppercase text-xs tracking-wider">Base Rental</span>
+                    <span className="font-extrabold text-gray-950">${(reservation.baseRental || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {rentalDays} Day{rentalDays > 1 ? 's' : ''} × ${(vehicle.dailyRate || 0).toFixed(2)}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* 2. External Charges */}
               {externalCharges.length > 0 && (
@@ -2021,6 +2073,93 @@ export default function ReservationDetail() {
                </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* 10. Cancel Reservation Modal */}
+      {activeModal === 'cancelReservation' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 backdrop-blur-sm p-4 no-print animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-gray-150 overflow-hidden flex flex-col">
+            <div className="px-6 py-4 bg-red-50 border-b border-red-100 flex justify-between items-center">
+              <div className="flex items-center gap-2 text-red-700">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="font-extrabold text-base uppercase tracking-wide">Cancel Reservation</h3>
+              </div>
+              <button 
+                onClick={() => setActiveModal(null)} 
+                className="text-gray-400 hover:text-gray-600 transition text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                Are you sure you want to cancel booking <span className="font-mono text-xs font-bold text-gray-800 bg-gray-50 px-1.5 py-0.5 rounded">{reservation?.id.substring(0, 8).toUpperCase()}</span>? This will release the assigned vehicle back to the available fleet.
+              </p>
+
+              {/* Cancellation Fee Section */}
+              <div className="bg-zinc-50 border border-zinc-150 rounded-xl p-4 space-y-3">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={cancellationFeeApply}
+                    onChange={(e) => setCancellationFeeApply(e.target.checked)}
+                    className="w-4.5 h-4.5 rounded border-zinc-350 text-red-600 focus:ring-red-500 accent-red-650 cursor-pointer"
+                  />
+                  <span className="text-sm font-bold text-zinc-700">Charge Cancellation Fee</span>
+                </label>
+
+                {cancellationFeeApply && (
+                  <div className="space-y-1.5 pt-1.5 border-t border-zinc-200/60 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <span className="text-xs text-zinc-500 font-bold uppercase tracking-wider block">Fee Amount ($)</span>
+                    <div className="relative rounded-lg shadow-sm">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span className="text-gray-500 sm:text-sm">$</span>
+                      </div>
+                      <input 
+                        type="number" 
+                        min="0"
+                        step="1"
+                        value={cancellationFeeAmount}
+                        onChange={(e) => setCancellationFeeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="block w-full pl-7 pr-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-bold text-gray-800"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Cancellation Reason Section */}
+              <div className="space-y-1.5">
+                <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block">Cancellation Reason</span>
+                <textarea 
+                  value={cancellationReasonText}
+                  onChange={(e) => setCancellationReasonText(e.target.value)}
+                  className="w-full h-20 p-2.5 border border-zinc-250 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  placeholder="e.g. Flight cancelled, customer changed mind..."
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-150 flex justify-end gap-3 rounded-b-xl">
+              <button 
+                type="button" 
+                onClick={() => setActiveModal(null)} 
+                className="px-4 py-2 font-bold text-zinc-500 hover:text-zinc-800 transition rounded-lg hover:bg-zinc-100 text-sm cursor-pointer"
+              >
+                No, Keep Booking
+              </button>
+              <button 
+                type="button" 
+                onClick={handleCancelReservationSubmit}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition shadow-md text-sm flex items-center gap-1 cursor-pointer"
+              >
+                Confirm Cancellation
+              </button>
+            </div>
           </div>
         </div>
       )}

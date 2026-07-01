@@ -13,7 +13,7 @@ export default function Reservations() {
   const location = useLocation();
   const newCustomerParam = searchParams.get('newCustomer');
 
-  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Closed' | 'Cancelled' | 'Outstanding'>('Closed');
+  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Active' | 'Returns' | 'TomorrowPickups' | 'TodayPickups' | 'TomorrowReturns' | 'OnRent' | 'Completed' | 'Closed' | 'Cancelled' | 'Outstanding'>('Active');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -25,7 +25,16 @@ export default function Reservations() {
       navigate(`/reservations/new?customerId=${newCustomerParam}`);
     }
     if (location.state && location.state.filter) {
-        setActiveFilterTab(location.state.filter === 'active' ? 'Active' : 'Outstanding');
+      const f = location.state.filter;
+      if (f === 'active') {
+        setActiveFilterTab('Active');
+      } else if (f === 'outstanding') {
+        setActiveFilterTab('Outstanding');
+      } else if (f === 'Cancelled' || f === 'cancelled') {
+        setActiveFilterTab('Cancelled');
+      } else {
+        setActiveFilterTab(f);
+      }
     }
   }, [newCustomerParam, navigate, location.state]);
 
